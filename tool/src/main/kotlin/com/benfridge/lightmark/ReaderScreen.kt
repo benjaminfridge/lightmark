@@ -57,36 +57,50 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
+/** How the reader should place you when a chapter opens. */
+enum class ChapterEntry { Restore, Start, End }
+
+/** One chapter, loaded and ready to lay out. */
+data class LoadedChapter(
+    val index: Int,
+    val ref: DocumentRef,
+    val document: Document,
+    val entry: ChapterEntry,
+    val savedOffset: Int,
+    /** Changes on every load, so composable state keyed on it resets cleanly. */
+    val token: Long,
+)
+
 class ReaderViewModel(
-    private val ref: DocumentRef,
+    private val chapters: List<DocumentRef>,
+    startIndex: Int,
     private val repository: DocumentRepository,
     private val database: LightmarkDatabase,
 ) : LightViewModel<Unit>() {
 
-    val document = MutableStateFlow<Document?>(null)
+    val loaded = MutableStateFlow<LoadedChapter?>(null)
     val highlights = MutableStateFlow<List<Highlight>>(emptyList())
 
     /** The range under the finger mid-drag. Null when nothing is being selected. */
     val selection = MutableStateFlow<DocumentRange?>(null)
 
     val failed = MutableStateFlow(false)
-    val restoredOffset = MutableStateFlow<Int?>(null)
 
+    private var index = startIndex.coerceIn(0, (chapters.size - 1).coerceAtLeast(0))
     private var anchorOffset: Int? = null
     private var pageOffset = 0
+    private var token = 0L
+    private var started = false
+
+    val hasPrevious: Boolean get() = index > 0
+    val hasNext: Boolean get() = index < chapters.lastIndex
+    val chapterCount: Int get() = chapters.size
 
     override fun onScreenShow(screen: SimpleLightScreen<Unit>) {
         super.onScreenShow(screen)
-        viewModelScope.launch(Dispatchers.IO) {
-            val source = repository.read(ref)
-            if (source == null) {
-                failed.value = true
-                return@launch
-            }
-            document.value = Markdown.parse(source)
-            restoredOffset.value = repository.offset(ref.id)
-            reload()
-        }
+        if (started) return
+        started = true
+        open(index, ChapterEntry.Restore)
     }
 
     override fun onScreenHide(screen: SimpleLightScreen<Unit>) {
@@ -108,12 +122,63 @@ class ReaderViewModel(
         pageOffset = offset
     }
 
+    /**
+     * Swiping past the last page continues into the next chapter, and swiping back from
+     * the first page returns to the end of the previous one. The chapter is swapped in
+     * place rather than pushed, so the back key always returns to the chapter list
+     * however far you have read, instead of unwinding one chapter at a time.
+     */
+    fun nextChapter(): Boolean {
+        if (!hasNext) return false
+        persist()
+        open(index + 1, ChapterEntry.Start)
+        return true
+    }
+
+    fun previousChapter(): Boolean {
+        if (!hasPrevious) return false
+        persist()
+        open(index - 1, ChapterEntry.End)
+        return true
+    }
+
+    private fun open(target: Int, entry: ChapterEntry) {
+        index = target
+        val ref = chapters.getOrNull(target) ?: return
+        loaded.value = null
+        selection.value = null
+        anchorOffset = null
+        pageOffset = 0
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val source = repository.read(ref)
+            if (source == null) {
+                failed.value = true
+                return@launch
+            }
+            failed.value = false
+            val saved = if (entry == ChapterEntry.Restore) repository.offset(ref.id) else 0
+            ref.bookId?.let { repository.saveCurrentChapter(it, ref.id) }
+            highlights.value = database.highlights().list(ref.id)
+            loaded.value = LoadedChapter(
+                index = target,
+                ref = ref,
+                document = Markdown.parse(source),
+                entry = entry,
+                savedOffset = saved,
+                token = ++token,
+            )
+        }
+    }
+
     private fun persist() {
+        val ref = chapters.getOrNull(index) ?: return
         val offset = pageOffset
         viewModelScope.launch(Dispatchers.IO) { repository.saveOffset(ref.id, offset) }
     }
 
     private suspend fun reload() {
+        val ref = chapters.getOrNull(index) ?: return
         highlights.value = database.highlights().list(ref.id)
     }
 
@@ -134,14 +199,14 @@ class ReaderViewModel(
             return false
         }
 
-        val plain = document.value?.plainText ?: return false
+        val plain = loaded.value?.document?.plainText ?: return false
         anchorOffset = documentOffset
         selection.value = snapToWord(plain, documentOffset)
         return true
     }
 
     fun extendSelection(documentOffset: Int) {
-        val plain = document.value?.plainText ?: return
+        val plain = loaded.value?.document?.plainText ?: return
         val anchor = anchorOffset ?: return
         selection.value = selectionBetween(plain, anchor, documentOffset)
     }
@@ -151,15 +216,16 @@ class ReaderViewModel(
         anchorOffset = null
         selection.value = null
         if (range == null || range.isEmpty) return
-        val plain = document.value?.plainText ?: return
+        val state = loaded.value ?: return
+        val plain = state.document.plainText
 
         viewModelScope.launch(Dispatchers.IO) {
             val dao = database.highlights()
-            val plan = planMerge(dao.list(ref.id), range.start, range.end)
+            val plan = planMerge(dao.list(state.ref.id), range.start, range.end)
             plan.absorbedIds.forEach { dao.delete(it) }
             dao.insert(
                 Highlight(
-                    documentId = ref.id,
+                    documentId = state.ref.id,
                     start = plan.start,
                     end = plan.end,
                     createdAt = System.currentTimeMillis(),
@@ -187,30 +253,36 @@ class ReaderViewModel(
  * through [goBack], so there is no top bar taking two of the screen's thirty-one
  * vertical grid units on every page.
  *
+ * A book is a list of chapter files, and swiping carries across the boundary between
+ * them, so a split book reads as one thing. A loose document is simply a list of one.
+ *
  * The only mark that is not text is a hairline along the bottom edge showing how far
- * through the document you are. A reader with no scrollbar and no page number is
- * otherwise read blind, and "how much is left" is something you genuinely need.
+ * through the current chapter you are.
  */
 class ReaderScreen(
     private val sealedActivity: SealedLightActivity,
-    private val ref: DocumentRef,
+    private val chapters: List<DocumentRef>,
+    private val startIndex: Int = 0,
 ) : LightScreen<Unit, ReaderViewModel>(sealedActivity) {
+
+    constructor(sealedActivity: SealedLightActivity, ref: DocumentRef) :
+        this(sealedActivity, listOf(ref), 0)
 
     override val viewModelClass: Class<ReaderViewModel> get() = ReaderViewModel::class.java
 
     override fun createViewModel(): ReaderViewModel = ReaderViewModel(
-        ref = ref,
+        chapters = chapters,
+        startIndex = startIndex,
         repository = DocumentRepository(lightContext, lightContext.dataStore),
         database = lightContext.buildDatabase(LightmarkDatabase::class.java, LibraryScreen.DB_NAME),
     )
 
     @Composable
     override fun Content() {
-        val document by viewModel.document.collectAsState()
+        val loaded by viewModel.loaded.collectAsState()
         val highlights by viewModel.highlights.collectAsState()
         val selection by viewModel.selection.collectAsState()
         val failed by viewModel.failed.collectAsState()
-        val restoredOffset by viewModel.restoredOffset.collectAsState()
         val themeColors by LightThemeController.colors.collectAsState()
 
         LightTheme(colors = themeColors) {
@@ -231,7 +303,7 @@ class ReaderScreen(
                 val contentWidth = (widthPx - sideMargin * 2f).toInt()
                 val pageHeight = heightPx - topMargin - bottomMargin - hairline
 
-                val doc = document
+                val state = loaded
                 when {
                     failed -> LightText(
                         text = "That document could not be read.",
@@ -242,9 +314,10 @@ class ReaderScreen(
                         ),
                     )
 
-                    doc == null -> Unit
+                    state == null -> Unit
 
                     else -> {
+                        val doc = state.document
                         val measurer = rememberTextMeasurer()
                         val blocks = rememberMeasuredBlocks(
                             document = doc,
@@ -254,15 +327,23 @@ class ReaderScreen(
                             measurer = measurer,
                         )
                         val pages = remember(blocks, pageHeight) { paginate(blocks, pageHeight) }
-                        val blockStarts = remember(doc) { doc.blocks.map { it.start } }
+                        val blockStarts = remember(state.token) { doc.blocks.map { it.start } }
 
                         // Position is held as a character offset and the page derived
                         // from it, not the other way round. A theme switch or an
                         // activity recreation re-measures and re-paginates; deriving
                         // the page means that keeps your place instead of resetting.
-                        var readingOffset by remember(doc) { mutableIntStateOf(-1) }
-                        LaunchedEffect(restoredOffset) {
-                            if (readingOffset < 0) readingOffset = restoredOffset ?: 0
+                        var readingOffset by remember(state.token) { mutableIntStateOf(-1) }
+
+                        LaunchedEffect(state.token, pages) {
+                            if (readingOffset < 0 && pages.isNotEmpty()) {
+                                readingOffset = when (state.entry) {
+                                    ChapterEntry.Restore -> state.savedOffset
+                                    ChapterEntry.Start -> 0
+                                    // Arrived by swiping backwards: open at the end.
+                                    ChapterEntry.End -> startOffsetOf(pages.last(), blockStarts)
+                                }
+                            }
                         }
 
                         val pageIndex = remember(pages, readingOffset, blockStarts) {
@@ -286,7 +367,7 @@ class ReaderScreen(
                                 ?.let { layoutPage(it, blocks) }
                                 ?: emptyList()
                         }
-                        val layouts = remember(pageIndex, pages) {
+                        val layouts = remember(pageIndex, pages, state.token) {
                             mutableMapOf<Int, TextLayoutResult>()
                         }
 
@@ -310,10 +391,16 @@ class ReaderScreen(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .readerGestures(
-                                    key = pageIndex to pages.size,
+                                    key = Triple(state.token, pageIndex, pages.size),
                                     swipeThreshold = widthPx * SWIPE_FRACTION,
-                                    onPageForward = { goToPage(pageIndex + 1) },
-                                    onPageBack = { goToPage(pageIndex - 1) },
+                                    onPageForward = {
+                                        if (pageIndex < pages.lastIndex) goToPage(pageIndex + 1)
+                                        else viewModel.nextChapter()
+                                    },
+                                    onPageBack = {
+                                        if (pageIndex > 0) goToPage(pageIndex - 1)
+                                        else viewModel.previousChapter()
+                                    },
                                     onSelectStart = { position ->
                                         val offset = offsetAt(position)
                                         val started = offset != null &&
@@ -374,10 +461,11 @@ class ReaderScreen(
 }
 
 /**
- * How far through the document you are, as one hairline along the bottom edge.
+ * How far through the chapter you are, as one hairline along the bottom edge.
  *
  * Not a page count and not a percentage: a number invites checking, a filling line is
- * read without being looked at.
+ * read without being looked at. It measures the chapter rather than the book because
+ * chapters differ in length, so a book-wide fraction would be quietly wrong.
  */
 @Composable
 private fun ProgressHairline(fraction: Float, modifier: Modifier = Modifier) {

@@ -4,6 +4,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
 import com.thelightphone.sdk.LightFileShare
 import com.thelightphone.sdk.SealedLightContext
 import kotlinx.coroutines.flow.first
@@ -21,13 +22,48 @@ internal fun titleFromFileName(fileName: String): String = fileName
     .replaceFirstChar { it.uppercase() }
 
 /**
- * "shared:02-the-wild-places.md" -> "02 the wild places".
+ * "shared:ways-of-being/02-the-wild-places.md" -> "02 the wild places".
  *
  * Derived from the id rather than looked up, so an export still names a document whose
  * file has since been renamed or removed.
  */
 internal fun titleFromDocumentId(documentId: String): String =
-    titleFromFileName(documentId.substringAfter(':', documentId))
+    titleFromFileName(documentId.substringAfter(':', documentId).substringAfterLast('/'))
+
+/**
+ * Orders "2" before "10", which plain string order gets wrong.
+ *
+ * Chapter files are named by whoever converted them, and expecting zero-padding is the
+ * kind of rule that is remembered once and then isn't. Digit runs compare as numbers,
+ * everything else case-insensitively.
+ */
+internal fun compareNatural(a: String, b: String): Int {
+    var i = 0
+    var j = 0
+    while (i < a.length && j < b.length) {
+        val ca = a[i]
+        val cb = b[j]
+        if (ca.isDigit() && cb.isDigit()) {
+            var iEnd = i
+            while (iEnd < a.length && a[iEnd].isDigit()) iEnd++
+            var jEnd = j
+            while (jEnd < b.length && b[jEnd].isDigit()) jEnd++
+            val na = a.substring(i, iEnd).trimStart('0').ifEmpty { "0" }
+            val nb = b.substring(j, jEnd).trimStart('0').ifEmpty { "0" }
+            if (na.length != nb.length) return na.length - nb.length
+            na.compareTo(nb).let { if (it != 0) return it }
+            i = iEnd
+            j = jEnd
+        } else {
+            ca.lowercaseChar().compareTo(cb.lowercaseChar()).let { if (it != 0) return it }
+            i++
+            j++
+        }
+    }
+    return (a.length - i) - (b.length - j)
+}
+
+internal val NATURAL: Comparator<String> = Comparator { a, b -> compareNatural(a, b) }
 
 /**
  * [id] is stable across reparses and reboots, and is what highlights are keyed on.
@@ -38,15 +74,32 @@ data class DocumentRef(
     val title: String,
     val source: DocumentSource,
     val path: String,
+    /** The book this is a chapter of, or null for a loose document. */
+    val bookId: String? = null,
 )
+
+/** A folder of chapters under `documents/`, read in natural filename order. */
+data class Book(
+    val id: String,
+    val title: String,
+    val chapters: List<DocumentRef>,
+)
+
+/** Everything the library shows, already ordered. */
+data class Library(
+    val singles: List<DocumentRef> = emptyList(),
+    val books: List<Book> = emptyList(),
+) {
+    val isEmpty: Boolean get() = singles.isEmpty() && books.isEmpty()
+}
 
 /**
  * Documents come from two places: a few bundled in the APK, and whatever the user has
  * put in `files/shared/documents`.
  *
- * Today that second directory is filled by `adb push`. When `tool-manager-provider`
- * works on a shipping LightOS, the Tool Manager writes into the same directory and
- * nothing here changes — see [com.benfridge.lightmark.Features.TOOL_MANAGER_UPLOAD].
+ * A loose file there is one document. A *folder* of files is a book, and its files are
+ * its chapters — which is how a converted PDF naturally lands, one file per chapter,
+ * and it means a 150-page book does not arrive as thirty equal rows in the library.
  */
 class DocumentRepository(
     private val lightContext: SealedLightContext,
@@ -54,7 +107,49 @@ class DocumentRepository(
 ) {
     private val fileShare: LightFileShare get() = lightContext.fileShare
 
-    fun list(): List<DocumentRef> = (bundled() + shared()).sortedBy { it.title.lowercase() }
+    fun library(): Library {
+        val shared = runCatching { fileShare.list(SHARED_DIR) }.getOrDefault(emptyList())
+
+        val singles = (bundled() + shared.filter { it.isFile && it.name.isMarkdown() }.map { file ->
+            DocumentRef(
+                id = "shared:${file.name}",
+                title = titleFromFileName(file.name),
+                source = DocumentSource.Shared,
+                path = "$SHARED_DIR/${file.name}",
+            )
+        }).sortedWith(compareBy(NATURAL) { it.title })
+
+        val books = shared
+            .filter { !it.isFile }
+            .mapNotNull { dir -> bookIn(dir.name) }
+            .sortedWith(compareBy(NATURAL) { it.title })
+
+        return Library(singles = singles, books = books)
+    }
+
+    private fun bookIn(folder: String): Book? {
+        val files = runCatching { fileShare.list("$SHARED_DIR/$folder") }
+            .getOrDefault(emptyList())
+            .filter { it.isFile && it.name.isMarkdown() }
+            .sortedWith(compareBy(NATURAL) { it.name })
+
+        if (files.isEmpty()) return null
+
+        val bookId = "book:$folder"
+        return Book(
+            id = bookId,
+            title = titleFromFileName(folder),
+            chapters = files.map { file ->
+                DocumentRef(
+                    id = "shared:$folder/${file.name}",
+                    title = titleFromFileName(file.name),
+                    source = DocumentSource.Shared,
+                    path = "$SHARED_DIR/$folder/${file.name}",
+                    bookId = bookId,
+                )
+            },
+        )
+    }
 
     private fun bundled(): List<DocumentRef> {
         val index = runCatching {
@@ -67,25 +162,13 @@ class DocumentRepository(
             .map { name ->
                 DocumentRef(
                     id = "bundled:$name",
-                    title = titleOf(name),
+                    title = titleFromFileName(name),
                     source = DocumentSource.Bundled,
                     path = "$ASSET_DIR/$name",
                 )
             }
             .toList()
     }
-
-    private fun shared(): List<DocumentRef> =
-        runCatching { fileShare.list(SHARED_DIR) }.getOrDefault(emptyList())
-            .filter { it.isFile && it.name.isMarkdown() }
-            .map { file ->
-                DocumentRef(
-                    id = "shared:${file.name}",
-                    title = titleOf(file.name),
-                    source = DocumentSource.Shared,
-                    path = "$SHARED_DIR/${file.name}",
-                )
-            }
 
     /** Returns null when the file has gone away since it was listed. */
     fun read(ref: DocumentRef): String? = when (ref.source) {
@@ -107,6 +190,20 @@ class DocumentRepository(
     suspend fun offset(documentId: String): Int =
         dataStore.data.map { it[offsetKey(documentId)] ?: 0 }.first()
 
+    /**
+     * Which chapter a book was last open at.
+     *
+     * Splitting a book into files gives every chapter its own position but leaves the
+     * book with none, so this is the one piece of state that makes a shelf of chapters
+     * behave like something you were reading.
+     */
+    suspend fun saveCurrentChapter(bookId: String, documentId: String) {
+        dataStore.edit { it[chapterKey(bookId)] = documentId }
+    }
+
+    suspend fun currentChapter(bookId: String): String? =
+        dataStore.data.map { it[chapterKey(bookId)] }.first()
+
     /** Makes the shared directory exist, so the Tool Manager has somewhere to write. */
     fun ensureSharedDirectory() {
         if (!fileShare.exists(SHARED_DIR)) {
@@ -120,10 +217,9 @@ class DocumentRepository(
         const val INDEX_FILE = "index.txt"
 
         fun offsetKey(documentId: String) = intPreferencesKey("offset:$documentId")
+        fun chapterKey(bookId: String) = stringPreferencesKey("chapter:$bookId")
 
         fun String.isMarkdown(): Boolean =
             listOf(".md", ".markdown", ".mdown", ".txt").any { endsWith(it, ignoreCase = true) }
-
-        fun titleOf(fileName: String): String = titleFromFileName(fileName)
     }
 }

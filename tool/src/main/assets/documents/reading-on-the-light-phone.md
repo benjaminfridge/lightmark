@@ -40,6 +40,11 @@ and back.
 Files live in the tool's `documents` folder. Anything ending in `.md`,
 `.markdown` or `.txt` is picked up.
 
+A loose file is one document. A folder of files is a book, and the files
+inside it are its chapters, ordered by name. Swiping past the end of a
+chapter carries on into the next one, and the book remembers which chapter
+you were in.
+
 Converting a PDF before you copy it across works better than reading the
 PDF itself. The only renderer available to a tool returns a page as a
 bitmap with no text layer, which means no selection and no reflow — and a

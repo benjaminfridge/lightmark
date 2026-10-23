@@ -100,6 +100,32 @@ adb push notes.md /sdcard/
 adb shell run-as com.benfridge.lightmark cp /sdcard/notes.md files/shared/documents/
 ```
 
+### Books are folders
+
+A loose file in `documents/` is one document. A **folder** of files is a book, and its
+files are its chapters:
+
+```
+documents/
+  notes.md                      <- a document
+  ways-of-being/                <- a book
+    00-introduction.md
+    01-the-wild-places.md
+    02-...
+```
+
+That is how a converted PDF naturally lands, and it keeps a 150-page book from arriving
+as thirty equal rows in the library. It also keeps the reader responsive: the measuring
+pass is eager and whole-document, so a chapter measures in milliseconds where a whole
+book would freeze the first frame for seconds.
+
+Chapters are ordered by filename, compared **naturally** — `2-x.md` sorts before
+`10-x.md`, so zero-padding is optional. Names become titles, so
+`01-the-wild-places.md` reads as "01 the wild places".
+
+Filenames are load-bearing: highlights are keyed on `shared:<folder>/<file>`, so renaming
+a chapter after highlighting it orphans those highlights. Settle the naming first.
+
 PDFs are better converted first. The only PDF renderer available to a tool returns a
 page as a bitmap with no text layer, so there is nothing to select and nothing to
 reflow:
@@ -194,6 +220,18 @@ builds to 79MB debug and 25MB release (R8 minified and resource-shrunk).
 drag highlights. A plain tap does nothing, deliberately. Leaving is the hardware back
 key, which the SDK already routes through `goBack()` — so there is no top bar spending
 two of the screen's thirty-one vertical grid units on every page.
+
+**Swiping carries across chapter boundaries.** Past the last page of a chapter the next
+one opens at its first page; back from the first page reopens the previous one at its
+last. The chapter is swapped in place rather than pushed onto the back stack, so back
+always returns to the chapter list however far you have read, instead of unwinding one
+chapter at a time. A loose document is simply a book of one.
+
+**A book remembers which chapter you were in**, separately from each chapter's own
+character offset. Splitting a book gives every chapter a position but leaves the book
+without one, and that single value is what makes a shelf of files behave like something
+you were reading. The hairline still measures the chapter, not the book — chapters differ
+in length, so a book-wide fraction would be quietly wrong.
 
 **Pages, not scroll.** This panel is slower to redraw than a smartphone's. A page turn
 is a single repaint where scrolling is a continuous smear, which is why e-readers

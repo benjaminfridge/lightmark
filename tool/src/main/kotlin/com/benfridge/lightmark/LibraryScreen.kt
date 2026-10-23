@@ -1,9 +1,8 @@
 package com.benfridge.lightmark
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -12,10 +11,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewModelScope
+import com.benfridge.lightmark.data.Book
 import com.benfridge.lightmark.data.DocumentRef
 import com.benfridge.lightmark.data.DocumentRepository
 import com.benfridge.lightmark.data.DocumentSource
@@ -26,7 +25,6 @@ import com.thelightphone.sdk.InitialScreen
 import com.thelightphone.sdk.LightScreen
 import com.thelightphone.sdk.LightViewModel
 import com.thelightphone.sdk.SealedLightActivity
-import com.thelightphone.sdk.SealedLightContext
 import com.thelightphone.sdk.SimpleLightScreen
 import com.thelightphone.sdk.buildDatabase
 import com.thelightphone.sdk.ui.LightScrollView
@@ -43,8 +41,16 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
-/** A document plus how many highlights it holds, so the list can say. */
-data class LibraryEntry(val ref: DocumentRef, val highlightCount: Int)
+/** A loose document in the library. */
+data class SingleRow(val ref: DocumentRef, val highlightCount: Int)
+
+/** A book in the library, with where you left off. */
+data class BookRow(
+    val book: Book,
+    val highlightCount: Int,
+    val currentChapterTitle: String?,
+    val currentChapterNumber: Int?,
+)
 
 /** What the export row is showing. */
 sealed interface ExportState {
@@ -59,7 +65,8 @@ class LibraryViewModel(
     private val exporter: HighlightExporter,
 ) : LightViewModel<Unit>() {
 
-    val entries = MutableStateFlow<List<LibraryEntry>>(emptyList())
+    val books = MutableStateFlow<List<BookRow>>(emptyList())
+    val singles = MutableStateFlow<List<SingleRow>>(emptyList())
     val loaded = MutableStateFlow(false)
     val totalHighlights = MutableStateFlow(0)
     val exportState = MutableStateFlow<ExportState>(ExportState.Idle)
@@ -73,11 +80,22 @@ class LibraryViewModel(
     private fun refresh() {
         viewModelScope.launch(Dispatchers.IO) {
             repository.ensureSharedDirectory()
-            val refs = repository.list()
-            // One read grouped in memory, rather than a query per document: with a book
-            // split into chapters this list is long.
+            val library = repository.library()
+            // One read grouped in memory, rather than a query per document: a book split
+            // into chapters makes that list long.
             val counts = database.highlights().listAll().groupingBy { it.documentId }.eachCount()
-            entries.value = refs.map { LibraryEntry(it, counts[it.id] ?: 0) }
+
+            singles.value = library.singles.map { SingleRow(it, counts[it.id] ?: 0) }
+            books.value = library.books.map { book ->
+                val current = repository.currentChapter(book.id)
+                val index = book.chapters.indexOfFirst { it.id == current }
+                BookRow(
+                    book = book,
+                    highlightCount = book.chapters.sumOf { counts[it.id] ?: 0 },
+                    currentChapterTitle = book.chapters.getOrNull(index)?.title,
+                    currentChapterNumber = if (index >= 0) index + 1 else null,
+                )
+            }
             totalHighlights.value = counts.values.sum()
             loaded.value = true
         }
@@ -109,7 +127,8 @@ class LibraryScreen(sealedActivity: SealedLightActivity) :
 
     @Composable
     override fun Content() {
-        val entries by viewModel.entries.collectAsState()
+        val books by viewModel.books.collectAsState()
+        val singles by viewModel.singles.collectAsState()
         val loaded by viewModel.loaded.collectAsState()
         val totalHighlights by viewModel.totalHighlights.collectAsState()
         val exportState by viewModel.exportState.collectAsState()
@@ -126,31 +145,13 @@ class LibraryScreen(sealedActivity: SealedLightActivity) :
                 when {
                     !loaded -> Unit
 
-                    entries.isEmpty() -> Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 1.5f.gridUnitsAsDp()),
-                    ) {
-                        LightText(
-                            text = "No documents yet.",
-                            variant = LightTextVariant.Copy,
-                        )
-                        Spacer(Modifier.height(1f.gridUnitsAsDp()))
-                        LightText(
-                            text = "Markdown and text files in the tool's documents " +
-                                "folder show up here.",
-                            variant = LightTextVariant.Detail,
-                            lighten = true,
-                        )
-                    }
+                    books.isEmpty() && singles.isEmpty() -> EmptyLibrary()
 
-                    else -> LightScrollView(
-                        modifier = Modifier.fillMaxSize(),
-                    ) {
+                    else -> LightScrollView(modifier = Modifier.fillMaxSize()) {
                         Spacer(Modifier.height(0.5f.gridUnitsAsDp()))
-                        entries.forEach { entry ->
-                            DocumentRow(entry) { open(entry.ref) }
-                        }
+                        // Books first: one of them stands for thirty files.
+                        books.forEach { row -> BookRowView(row) { openBook(row.book) } }
+                        singles.forEach { row -> SingleRowView(row) { openSingle(row.ref) } }
                         if (totalHighlights > 0) {
                             ExportRow(
                                 total = totalHighlights,
@@ -165,12 +166,83 @@ class LibraryScreen(sealedActivity: SealedLightActivity) :
         }
     }
 
-    private fun open(ref: DocumentRef) {
+    private fun openBook(book: Book) {
+        navigateTo<Unit>({ activity -> BookScreen(activity, book) })
+    }
+
+    private fun openSingle(ref: DocumentRef) {
         navigateTo<Unit>({ activity -> ReaderScreen(activity, ref) })
     }
 
     companion object {
         const val DB_NAME = "lightmark.db"
+    }
+}
+
+@Composable
+private fun EmptyLibrary() {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 1.5f.gridUnitsAsDp()),
+    ) {
+        LightText(text = "No documents yet.", variant = LightTextVariant.Copy)
+        Spacer(Modifier.height(1f.gridUnitsAsDp()))
+        LightText(
+            text = "Markdown and text files in the tool's documents folder show up " +
+                "here. A folder of files is read as a book, one file per chapter.",
+            variant = LightTextVariant.Detail,
+            lighten = true,
+        )
+    }
+}
+
+@Composable
+private fun BookRowView(row: BookRow, onClick: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .lightClickable { onClick() }
+            .padding(horizontal = 1.5f.gridUnitsAsDp(), vertical = 0.75f.gridUnitsAsDp()),
+    ) {
+        LightText(text = row.book.title, variant = LightTextVariant.Copy)
+        LightText(text = bookDetail(row), variant = LightTextVariant.Detail, lighten = true)
+    }
+}
+
+private fun bookDetail(row: BookRow): String = buildString {
+    val total = row.book.chapters.size
+    if (row.currentChapterNumber != null) {
+        append(row.currentChapterNumber).append(" of ").append(total)
+    } else {
+        append(total).append(if (total == 1) " chapter" else " chapters")
+    }
+    if (row.highlightCount > 0) {
+        append("  ·  ").append(row.highlightCount)
+        append(if (row.highlightCount == 1) " highlight" else " highlights")
+    }
+}
+
+@Composable
+private fun SingleRowView(row: SingleRow, onClick: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .lightClickable { onClick() }
+            .padding(horizontal = 1.5f.gridUnitsAsDp(), vertical = 0.75f.gridUnitsAsDp()),
+    ) {
+        LightText(text = row.ref.title, variant = LightTextVariant.Copy)
+        LightText(
+            text = buildString {
+                append(if (row.ref.source == DocumentSource.Bundled) "Included" else "Yours")
+                if (row.highlightCount > 0) {
+                    append("  ·  ").append(row.highlightCount)
+                    append(if (row.highlightCount == 1) " highlight" else " highlights")
+                }
+            },
+            variant = LightTextVariant.Detail,
+            lighten = true,
+        )
     }
 }
 
@@ -227,37 +299,8 @@ private fun exportDetail(total: Int, state: ExportState): String = when (state) 
     ExportState.Running -> "Writing the file"
 
     is ExportState.Done -> when (val outcome = state.outcome) {
-        is ExportOutcome.Written ->
-            "Saved to ${outcome.relativePath}"
-
+        is ExportOutcome.Written -> "Saved to ${outcome.relativePath}"
         ExportOutcome.NothingToExport -> "Nothing highlighted yet"
-
         is ExportOutcome.Failed -> outcome.reason
-    }
-}
-
-@Composable
-private fun DocumentRow(entry: LibraryEntry, onClick: () -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .lightClickable { onClick() }
-            .padding(horizontal = 1.5f.gridUnitsAsDp(), vertical = 0.75f.gridUnitsAsDp()),
-    ) {
-        LightText(text = entry.ref.title, variant = LightTextVariant.Copy)
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            LightText(
-                text = buildString {
-                    append(if (entry.ref.source == DocumentSource.Bundled) "Included" else "Yours")
-                    if (entry.highlightCount > 0) {
-                        append("  ·  ")
-                        append(entry.highlightCount)
-                        append(if (entry.highlightCount == 1) " highlight" else " highlights")
-                    }
-                },
-                variant = LightTextVariant.Detail,
-                lighten = true,
-            )
-        }
     }
 }
