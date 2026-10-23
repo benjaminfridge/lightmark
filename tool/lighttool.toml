@@ -1,0 +1,15 @@
+[tool]
+id = "com.benfridge.lightmark"
+label = "Lightmark"
+versionCode = 1
+versionName = "0.1.0"
+permissions = []
+# HELD BACK: tool-manager-provider is what lets a reader receive documents over
+# local WiFi, but LightOS 582 can't reach it yet (see docs/HOLDBACK.md). The code
+# is written and tested on the emulator; enabling it is this line plus the flag in
+# Features.kt. Until then documents arrive by `adb push` into files/shared/documents.
+# capabilities = ["tool-manager-provider"]
+capabilities = []
+# for the LightOS emulator, use the line below and build with -DlightSdk.allowAltServerPackage=true
+# serverPackage = "com.thelightphone.sdk.emulator"
+serverPackage = "com.lightos"
