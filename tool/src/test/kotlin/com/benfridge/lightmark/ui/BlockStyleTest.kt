@@ -106,7 +106,7 @@ class BlockStyleTest {
             Block.Quote(listOf(Span("x"))),
             Block.ListItem("\u2022", listOf(Span("x"))),
         ).forEach { block ->
-            val style = blockStyle(block, typography, 1f)
+            val style = blockStyle(block, typography, 1f, justify = true)
             assertEquals(TextAlign.Justify, style.textAlign, "$block alignment")
             assertEquals(Hyphens.Auto, style.hyphens, "$block hyphens")
             assertEquals(LineBreak.Paragraph, style.lineBreak, "$block line break")
@@ -120,10 +120,17 @@ class BlockStyleTest {
             Block.Heading(3, listOf(Span("x"))),
             Block.Code("x"),
         ).forEach { block ->
-            val style = blockStyle(block, typography, 1f)
+            val style = blockStyle(block, typography, 1f, justify = true)
             assertTrue(style.textAlign != TextAlign.Justify, "$block should stay ragged")
             assertTrue(style.hyphens != Hyphens.Auto, "$block should not hyphenate")
         }
+    }
+
+    @Test
+    fun `prose is ragged unless justification is asked for`() {
+        val style = blockStyle(para(), typography, 1f)
+        assertTrue(style.textAlign != TextAlign.Justify, "ragged is the default")
+        assertTrue(style.hyphens != Hyphens.Auto)
     }
 
     @Test

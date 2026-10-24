@@ -22,6 +22,10 @@ interface ReaderSettings {
     /** A multiplier on the LightOS type scale; see [TextScale]. */
     suspend fun textScale(): Float
     suspend fun setTextScale(scale: Float)
+
+    /** Justify running text, rather than setting it ragged-right. */
+    suspend fun justifyText(): Boolean
+    suspend fun setJustifyText(enabled: Boolean)
 }
 
 class DataStoreReaderSettings(private val dataStore: DataStore<Preferences>) : ReaderSettings {
@@ -54,8 +58,22 @@ class DataStoreReaderSettings(private val dataStore: DataStore<Preferences>) : R
         dataStore.edit { it[TEXT_SCALE] = TextScale.nearest(scale) }
     }
 
+    /**
+     * Off by default. Justification needs a wide enough measure to avoid opening
+     * rivers between the words, and how wide is wide enough is a matter of taste as
+     * much as arithmetic — especially since the measure here changes with the text
+     * size. Ragged-right is never wrong, so that is where it starts.
+     */
+    override suspend fun justifyText(): Boolean =
+        dataStore.data.map { it[JUSTIFY] ?: false }.first()
+
+    override suspend fun setJustifyText(enabled: Boolean) {
+        dataStore.edit { it[JUSTIFY] = enabled }
+    }
+
     private companion object {
         val VOLUME_KEYS = booleanPreferencesKey("volumeKeysTurnPages")
         val TEXT_SCALE = floatPreferencesKey("textScale")
+        val JUSTIFY = booleanPreferencesKey("justifyText")
     }
 }

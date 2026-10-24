@@ -126,6 +126,9 @@ class ReaderViewModel(
     /** The reader's chosen type size, as a multiplier on the LightOS scale. */
     val textScale = MutableStateFlow(TextScale.DEFAULT)
 
+    /** Whether running text is justified. Ragged-right when false. */
+    val justifyText = MutableStateFlow(false)
+
     private var volumeKeysTurnPages = true
     private var nudgeId = 0L
     private var index = startIndex.coerceIn(0, (chapters.size - 1).coerceAtLeast(0))
@@ -154,6 +157,7 @@ class ReaderViewModel(
         viewModelScope.launch(io) {
             volumeKeysTurnPages = settings.volumeKeysTurnPages()
             textScale.value = settings.textScale()
+            justifyText.value = settings.justifyText()
         }
         open(index, ChapterEntry.Restore)
     }
@@ -390,6 +394,7 @@ class ReaderScreen(
         val failed by viewModel.failed.collectAsState()
         val pageNudge by viewModel.pageNudge.collectAsState()
         val textScale by viewModel.textScale.collectAsState()
+        val justifyText by viewModel.justifyText.collectAsState()
         val themeColors by LightThemeController.colors.collectAsState()
 
         LightTheme(colors = themeColors) {
@@ -440,6 +445,7 @@ class ReaderScreen(
                             unitPx = unitPx,
                             typography = typography,
                             fontScale = fontScale,
+                            justify = justifyText,
                             measurer = measurer,
                         ) ?: emptyList()
                         val pages = remember(blocks, pageHeight) { paginate(blocks, pageHeight) }
@@ -564,6 +570,7 @@ class ReaderScreen(
                                     colors = colors,
                                     typography = typography,
                                     fontScale = fontScale,
+                                    justify = justifyText,
                                     unitPx = unitPx,
                                     density = density,
                                     onSliceLayout = { index, layout ->

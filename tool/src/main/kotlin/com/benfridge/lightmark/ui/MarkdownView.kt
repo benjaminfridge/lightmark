@@ -113,6 +113,7 @@ internal fun blockStyle(
     block: Block,
     typography: LightTypography,
     fontScale: Float,
+    justify: Boolean = false,
 ): TextStyle {
     val base = when (block) {
         is Block.Heading -> when (block.level) {
@@ -127,7 +128,7 @@ internal fun blockStyle(
         is Block.Code -> typography.detail.copy(fontFamily = FontFamily.Monospace)
         is Block.Rule -> typography.paragraphWide
     }
-    return base.scaled(fontScale).let { if (block.isProse) it.justified() else it }
+    return base.scaled(fontScale).let { if (justify && block.isProse) it.justified() else it }
 }
 
 /** Running text. Headings, code and rules are set ragged-right as usual. */
@@ -198,6 +199,7 @@ internal fun rememberMeasuredBlocks(
     unitPx: Float,
     typography: LightTypography,
     fontScale: Float,
+    justify: Boolean,
     measurer: TextMeasurer,
 ): List<MeasuredBlock>? = produceState<List<MeasuredBlock>?>(
     initialValue = null,
@@ -206,11 +208,13 @@ internal fun rememberMeasuredBlocks(
     unitPx,
     typography,
     fontScale,
+    // Justification changes where lines break, so it has to re-measure.
+    justify,
 ) {
     // Drop the previous chapter's geometry before measuring the new one, or a stale
     // layout is briefly used to place the new text.
     value = null
-    value = measureBlocks(document, contentWidthPx, unitPx, typography, fontScale, measurer)
+    value = measureBlocks(document, contentWidthPx, unitPx, typography, fontScale, justify, measurer)
 }.value
 
 /** Blocks measured between yields. Small enough that no single run holds up a frame. */
@@ -222,6 +226,7 @@ private suspend fun measureBlocks(
     unitPx: Float,
     typography: LightTypography,
     fontScale: Float,
+    justify: Boolean,
     measurer: TextMeasurer,
 ): List<MeasuredBlock> {
     if (contentWidthPx <= 0 || unitPx <= 0f) return emptyList()
@@ -229,7 +234,9 @@ private suspend fun measureBlocks(
     val measured = ArrayList<MeasuredBlock>(document.blocks.size)
     document.blocks.forEachIndexed { index, placed ->
         if (index % YIELD_EVERY == 0) yield()
-        measured += measureBlock(placed.block, contentWidthPx, unitPx, typography, fontScale, measurer)
+        measured += measureBlock(
+            placed.block, contentWidthPx, unitPx, typography, fontScale, justify, measurer,
+        )
     }
     return measured
 }
@@ -240,6 +247,7 @@ private fun measureBlock(
     unitPx: Float,
     typography: LightTypography,
     fontScale: Float,
+    justify: Boolean,
     measurer: TextMeasurer,
 ): MeasuredBlock {
     val spacing = blockSpacingUnits(block) * unitPx
@@ -264,7 +272,7 @@ private fun measureBlock(
 
     val layout = measurer.measure(
         text = text,
-        style = blockStyle(block, typography, fontScale),
+        style = blockStyle(block, typography, fontScale, justify),
         constraints = Constraints(maxWidth = (contentWidthPx - insetPx).coerceAtLeast(1)),
     )
 
@@ -295,6 +303,7 @@ internal fun PageContent(
     colors: LightColors,
     typography: LightTypography,
     fontScale: Float,
+    justify: Boolean,
     unitPx: Float,
     density: Density,
     onSliceLayout: (Int, TextLayoutResult) -> Unit,
@@ -337,7 +346,7 @@ internal fun PageContent(
                 if (block is Block.ListItem && slice.isBlockStart) {
                     Text(
                         text = block.marker,
-                        style = blockStyle(block, typography, fontScale),
+                        style = blockStyle(block, typography, fontScale, justify),
                         color = colors.contentSecondary,
                     )
                 }
@@ -352,7 +361,7 @@ internal fun PageContent(
                         selection = selection,
                         colors = colors,
                     ),
-                    style = blockStyle(block, typography, fontScale),
+                    style = blockStyle(block, typography, fontScale, justify),
                     color = if (block is Block.Quote) colors.contentSecondary else colors.content,
                     maxLines = slice.lastLine - slice.firstLine + 1,
                     onTextLayout = { onSliceLayout(index, it) },

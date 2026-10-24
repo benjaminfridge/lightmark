@@ -90,6 +90,7 @@ class LibraryViewModel(
     val exportState = MutableStateFlow<ExportState>(ExportState.Idle)
     val volumeKeysTurnPages = MutableStateFlow(true)
     val textScale = MutableStateFlow(TextScale.DEFAULT)
+    val justifyText = MutableStateFlow(false)
     val resume = MutableStateFlow<Resume?>(null)
 
     override fun onScreenShow(screen: SimpleLightScreen<Unit>) {
@@ -121,6 +122,7 @@ class LibraryViewModel(
             totalHighlights.value = counts.values.sum()
             volumeKeysTurnPages.value = settings.volumeKeysTurnPages()
             textScale.value = settings.textScale()
+            justifyText.value = settings.justifyText()
             loaded.value = true
         }
     }
@@ -129,6 +131,12 @@ class LibraryViewModel(
         val next = TextScale.next(textScale.value)
         textScale.value = next
         viewModelScope.launch(Dispatchers.IO) { settings.setTextScale(next) }
+    }
+
+    fun toggleJustify() {
+        val next = !justifyText.value
+        justifyText.value = next
+        viewModelScope.launch(Dispatchers.IO) { settings.setJustifyText(next) }
     }
 
     fun toggleVolumeKeys() {
@@ -171,6 +179,7 @@ class LibraryScreen(sealedActivity: SealedLightActivity) :
         val exportState by viewModel.exportState.collectAsState()
         val volumeKeys by viewModel.volumeKeysTurnPages.collectAsState()
         val textScale by viewModel.textScale.collectAsState()
+        val justify by viewModel.justifyText.collectAsState()
         val resume by viewModel.resume.collectAsState()
         val themeColors by LightThemeController.colors.collectAsState()
 
@@ -197,7 +206,12 @@ class LibraryScreen(sealedActivity: SealedLightActivity) :
                         books.forEach { row -> BookRowView(row) { openBook(row.book) } }
                         singles.forEach { row -> SingleRowView(row) { openSingle(row.ref) } }
                         SettingsDivider()
-                        TextSizeRow(scale = textScale, onCycle = viewModel::cycleTextScale)
+                        TextSizeRow(
+                            scale = textScale,
+                            justify = justify,
+                            onCycle = viewModel::cycleTextScale,
+                        )
+                        JustifyRow(enabled = justify, onToggle = viewModel::toggleJustify)
                         VolumeKeysRow(enabled = volumeKeys, onToggle = viewModel::toggleVolumeKeys)
                         if (totalHighlights > 0) {
                             ExportRow(
@@ -375,11 +389,12 @@ private fun SettingsDivider() {
  * different screen usable: you can see what you are choosing without opening a book.
  */
 @Composable
-private fun TextSizeRow(scale: Float, onCycle: () -> Unit) {
+private fun TextSizeRow(scale: Float, justify: Boolean, onCycle: () -> Unit) {
     val sampleStyle = blockStyle(
         block = Block.Paragraph(listOf(Span(SAMPLE))),
         typography = LightThemeTokens.typography,
         fontScale = rememberFontScale() * scale,
+        justify = justify,
     )
     Column(
         modifier = Modifier
@@ -412,6 +427,37 @@ private fun TextSizeRow(scale: Float, onCycle: () -> Unit) {
 
 private const val SAMPLE =
     "There is only nature, in all its eternal flowering, creating microprocessors."
+
+/**
+ * Justified or ragged-right.
+ *
+ * A matter of taste rather than a right answer, and the measure it has to work with
+ * changes with the text size above, so it is a switch and not a decision made for you.
+ * The sample in the row above redraws either way, which is the quickest way to tell.
+ */
+@Composable
+private fun JustifyRow(enabled: Boolean, onToggle: () -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .lightClickable { onToggle() }
+            .padding(horizontal = 1.5f.gridUnitsAsDp(), vertical = 0.75f.gridUnitsAsDp()),
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            LightText(text = "Justify text", variant = LightTextVariant.Copy)
+            LightText(
+                text = if (enabled) "Both edges aligned, hyphenated"
+                else "Ragged right",
+                variant = LightTextVariant.Detail,
+                lighten = true,
+            )
+        }
+        LightIcon(
+            icon = if (enabled) LightIcons.TOGGLE_STATE_ON else LightIcons.TOGGLE_STATE_OFF,
+        )
+    }
+}
 
 /**
  * Turning this off gives the volume keys back to whatever you are listening to, at the

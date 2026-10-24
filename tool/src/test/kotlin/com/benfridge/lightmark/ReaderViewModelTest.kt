@@ -89,6 +89,9 @@ class ReaderViewModelTest {
         override suspend fun setVolumeKeysTurnPages(enabled: Boolean) { volumeKeys = enabled }
         override suspend fun textScale() = scale
         override suspend fun setTextScale(scale: Float) { this.scale = scale }
+        var justify: Boolean = false
+        override suspend fun justifyText() = justify
+        override suspend fun setJustifyText(enabled: Boolean) { justify = enabled }
     }
 
     private fun chapter(name: String, book: String? = "book:b") = DocumentRef(

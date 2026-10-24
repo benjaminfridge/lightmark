@@ -25,10 +25,27 @@ class TextScaleTest {
 
     @Test
     fun `a value between steps snaps to the nearest`() {
-        assertEquals(0.85f, TextScale.nearest(0.86f))
-        assertEquals(1.0f, TextScale.nearest(0.97f))
-        assertEquals(1.2f, TextScale.nearest(5f))
-        assertEquals(0.85f, TextScale.nearest(0f))
+        assertEquals(TextScale.SMALL, TextScale.nearest(0.86f))
+        assertEquals(TextScale.DEFAULT, TextScale.nearest(0.97f))
+        assertEquals(TextScale.LARGE, TextScale.nearest(5f))
+        assertEquals(TextScale.TINY, TextScale.nearest(0f))
+    }
+
+    @Test
+    fun `there are four steps, smallest first`() {
+        assertEquals(4, TextScale.STEPS.size)
+        assertEquals(TextScale.TINY, TextScale.STEPS.first())
+        assertEquals(TextScale.LARGE, TextScale.STEPS.last())
+        assertTrue(TextScale.TINY < TextScale.SMALL)
+    }
+
+    @Test
+    fun `tiny stays legible rather than merely small`() {
+        // 25sp design * 0.787 screen scale * TINY, which is about 14sp: the size
+        // Android itself uses for body text, and roughly 2.3mm on this panel.
+        val renderedSp = 25f * 0.787f * TextScale.TINY
+        assertTrue(renderedSp > 13f, "would be too small to read: ${renderedSp}sp")
+        assertTrue(renderedSp < 16f, "not actually smaller than Small")
     }
 
     @Test

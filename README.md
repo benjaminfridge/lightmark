@@ -228,20 +228,25 @@ is open you cannot adjust what you are listening to — so it is a switch on the
 rather than a decision made for you. On by default. Auto-repeat is consumed but ignored:
 on a panel this slow, holding a key would flip faster than it can draw.
 
-**Running text is justified, with automatic hyphenation.** The column is about
-thirty-five characters. At that measure ragged-right leaves a lot of the line unused,
-and justification without hyphenation opens rivers between the words instead; the two
-together are what make a narrow measure read well. Headings, code and rules stay
-ragged. Applied in `blockStyle`, so the measuring pass and the renderer break lines
-identically — they would disagree about where every line ends otherwise.
+**Running text can be justified, with automatic hyphenation** — a switch on the
+library, off by default. Justification needs a wide enough measure to avoid opening
+rivers between the words, and the measure here changes with the text size, so how wide
+is wide enough is a matter of taste as much as arithmetic. Ragged-right is never wrong,
+so that is where it starts. Headings, code and rules are never justified. Set in
+`blockStyle`, so the measuring pass and the renderer break lines identically — they
+would disagree about where every line ends otherwise, and it is a key of the measuring
+pass because it changes where lines break.
 
-**Text size has three steps**, a multiplier on the LightOS scale. The control is a row
+**Text size has four steps** — Tiny, Small, Medium, Large — as a multiplier on the
+LightOS scale. On the LP3's 419ppi panel those come out at roughly 2.3, 2.7, 3.1 and
+3.8mm of type; a paperback sets body text at about 3.5mm, so Medium is already a little
+smaller than a book. The control is a row
 on the library, because the reader has two gestures and adding a third would undo that;
 the row renders a sample in the reader's own style so you can see what you are choosing
 without opening a book. Changing it re-measures and re-paginates, and because the
 reading position is a character offset that is *not* keyed on the scale, the page is
-re-derived around the same word. In the browser prototype the chapter goes from 46 pages
-to 33 between Medium and Small.
+re-derived around the same word. In the browser prototype the sample chapter runs to 46
+pages at Medium, 33 at Small and 24 at Tiny.
 
 **Continue reading** sits at the top of the library and reopens the last document read,
 whichever book it belonged to. Without it, picking the phone up means shelf, book,
