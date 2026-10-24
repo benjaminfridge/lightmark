@@ -228,6 +228,7 @@ The fix belongs upstream: move the scanner's permission out of the blanket UI ma
 the way foreground-service permissions are already handled, through
 `CAPABILITY_IMPLIED_PERMISSIONS` rather than a declaration every tool inherits. Until
 then a reader ships asking for camera access, and that needs disclosing at submission.
+A drafted issue is in [docs/upstream-camera-permission.md](docs/upstream-camera-permission.md).
 
 ## APK size
 
