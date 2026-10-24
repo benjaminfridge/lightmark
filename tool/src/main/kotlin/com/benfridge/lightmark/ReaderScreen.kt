@@ -31,6 +31,7 @@ import com.benfridge.lightmark.data.HighlightDao
 import com.benfridge.lightmark.data.Highlight
 import com.benfridge.lightmark.data.LightmarkDatabase
 import com.benfridge.lightmark.data.ReaderSettings
+import com.benfridge.lightmark.data.TextScale
 import com.benfridge.lightmark.data.planMerge
 import com.benfridge.lightmark.markdown.Document
 import com.benfridge.lightmark.markdown.Markdown
@@ -122,6 +123,9 @@ class ReaderViewModel(
     /** Set by a volume-key press; the screen applies it and clears it. */
     val pageNudge = MutableStateFlow<PageNudge?>(null)
 
+    /** The reader's chosen type size, as a multiplier on the LightOS scale. */
+    val textScale = MutableStateFlow(TextScale.DEFAULT)
+
     private var volumeKeysTurnPages = true
     private var nudgeId = 0L
     private var index = startIndex.coerceIn(0, (chapters.size - 1).coerceAtLeast(0))
@@ -149,6 +153,7 @@ class ReaderViewModel(
         started = true
         viewModelScope.launch(io) {
             volumeKeysTurnPages = settings.volumeKeysTurnPages()
+            textScale.value = settings.textScale()
         }
         open(index, ChapterEntry.Restore)
     }
@@ -251,6 +256,7 @@ class ReaderViewModel(
 
             val saved = if (entry == ChapterEntry.Restore) repository.offset(ref.id) else 0
             ref.bookId?.let { repository.saveCurrentChapter(it, ref.id) }
+            repository.saveLastRead(ref.id)
             val chapterHighlights = highlightDao.list(ref.id)
             val document = Markdown.parse(source)
 
@@ -383,6 +389,7 @@ class ReaderScreen(
         val selection by viewModel.selection.collectAsState()
         val failed by viewModel.failed.collectAsState()
         val pageNudge by viewModel.pageNudge.collectAsState()
+        val textScale by viewModel.textScale.collectAsState()
         val themeColors by LightThemeController.colors.collectAsState()
 
         LightTheme(colors = themeColors) {
@@ -419,7 +426,11 @@ class ReaderScreen(
                     else -> {
                         val doc = state.document
                         val measurer = rememberTextMeasurer()
-                        val fontScale = rememberFontScale()
+                        // The LightOS scale times what the reader chose. Changing it
+                        // re-measures and re-paginates; the reading position is a
+                        // character offset and is not keyed on it, so the page is
+                        // re-derived around the same word.
+                        val fontScale = rememberFontScale() * textScale
                         // Null until the measuring pass finishes. An empty list
                         // paginates to no pages, which is already the "nothing to draw
                         // yet" state every branch below handles.

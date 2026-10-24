@@ -104,6 +104,10 @@ interface DocumentStore {
     suspend fun offset(documentId: String): Int
     suspend fun saveCurrentChapter(bookId: String, documentId: String)
     suspend fun currentChapter(bookId: String): String?
+
+    /** The last document opened in the reader, whichever book it belonged to. */
+    suspend fun saveLastRead(documentId: String)
+    suspend fun lastRead(): String?
     fun ensureSharedDirectory()
 }
 
@@ -218,6 +222,16 @@ class DocumentRepository(
     override suspend fun currentChapter(bookId: String): String? =
         dataStore.data.map { it[chapterKey(bookId)] }.first()
 
+    /**
+     * One pointer for the whole library, so picking the phone up goes straight back to
+     * what you were reading instead of down through the shelf and the chapter list.
+     */
+    override suspend fun saveLastRead(documentId: String) {
+        dataStore.edit { it[LAST_READ] = documentId }
+    }
+
+    override suspend fun lastRead(): String? = dataStore.data.map { it[LAST_READ] }.first()
+
     /** Makes the shared directory exist, so the Tool Manager has somewhere to write. */
     override fun ensureSharedDirectory() {
         if (!fileShare.exists(SHARED_DIR)) {
@@ -229,6 +243,8 @@ class DocumentRepository(
         const val ASSET_DIR = "documents"
         const val SHARED_DIR = "documents"
         const val INDEX_FILE = "index.txt"
+
+        val LAST_READ = stringPreferencesKey("lastRead")
 
         fun offsetKey(documentId: String) = intPreferencesKey("offset:$documentId")
         fun chapterKey(bookId: String) = stringPreferencesKey("chapter:$bookId")

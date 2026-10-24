@@ -4,6 +4,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.floatPreferencesKey
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
@@ -17,6 +18,10 @@ import kotlinx.coroutines.flow.map
 interface ReaderSettings {
     suspend fun volumeKeysTurnPages(): Boolean
     suspend fun setVolumeKeysTurnPages(enabled: Boolean)
+
+    /** A multiplier on the LightOS type scale; see [TextScale]. */
+    suspend fun textScale(): Float
+    suspend fun setTextScale(scale: Float)
 }
 
 class DataStoreReaderSettings(private val dataStore: DataStore<Preferences>) : ReaderSettings {
@@ -37,7 +42,20 @@ class DataStoreReaderSettings(private val dataStore: DataStore<Preferences>) : R
         dataStore.edit { it[VOLUME_KEYS] = enabled }
     }
 
+    /**
+     * Stored as the multiplier rather than a step index, so adding or reordering steps
+     * later cannot silently change what an existing reader had chosen. Snapped back to
+     * a step on read.
+     */
+    override suspend fun textScale(): Float =
+        TextScale.nearest(dataStore.data.map { it[TEXT_SCALE] ?: TextScale.DEFAULT }.first())
+
+    override suspend fun setTextScale(scale: Float) {
+        dataStore.edit { it[TEXT_SCALE] = TextScale.nearest(scale) }
+    }
+
     private companion object {
         val VOLUME_KEYS = booleanPreferencesKey("volumeKeysTurnPages")
+        val TEXT_SCALE = floatPreferencesKey("textScale")
     }
 }

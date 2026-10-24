@@ -14,6 +14,8 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.material3.Text
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewModelScope
 import com.benfridge.lightmark.data.Book
@@ -24,6 +26,13 @@ import com.benfridge.lightmark.data.DocumentStore
 import com.benfridge.lightmark.data.HighlightDao
 import com.benfridge.lightmark.data.DocumentSource
 import com.benfridge.lightmark.data.LightmarkDatabase
+import com.benfridge.lightmark.data.Resume
+import com.benfridge.lightmark.data.resumeTarget
+import com.benfridge.lightmark.data.TextScale
+import com.benfridge.lightmark.markdown.Block
+import com.benfridge.lightmark.markdown.Span
+import com.benfridge.lightmark.ui.blockStyle
+import com.benfridge.lightmark.ui.rememberFontScale
 import com.benfridge.lightmark.data.ReaderSettings
 import com.benfridge.lightmark.export.ExportOutcome
 import com.benfridge.lightmark.export.HighlightExporter
@@ -80,6 +89,8 @@ class LibraryViewModel(
     val totalHighlights = MutableStateFlow(0)
     val exportState = MutableStateFlow<ExportState>(ExportState.Idle)
     val volumeKeysTurnPages = MutableStateFlow(true)
+    val textScale = MutableStateFlow(TextScale.DEFAULT)
+    val resume = MutableStateFlow<Resume?>(null)
 
     override fun onScreenShow(screen: SimpleLightScreen<Unit>) {
         super.onScreenShow(screen)
@@ -91,6 +102,7 @@ class LibraryViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             repository.ensureSharedDirectory()
             val library = repository.library()
+            resume.value = resumeTarget(library, repository.lastRead())
             // One read grouped in memory, rather than a query per document: a book split
             // into chapters makes that list long.
             val counts = highlightDao.listAll().groupingBy { it.documentId }.eachCount()
@@ -108,8 +120,15 @@ class LibraryViewModel(
             }
             totalHighlights.value = counts.values.sum()
             volumeKeysTurnPages.value = settings.volumeKeysTurnPages()
+            textScale.value = settings.textScale()
             loaded.value = true
         }
+    }
+
+    fun cycleTextScale() {
+        val next = TextScale.next(textScale.value)
+        textScale.value = next
+        viewModelScope.launch(Dispatchers.IO) { settings.setTextScale(next) }
     }
 
     fun toggleVolumeKeys() {
@@ -151,6 +170,8 @@ class LibraryScreen(sealedActivity: SealedLightActivity) :
         val totalHighlights by viewModel.totalHighlights.collectAsState()
         val exportState by viewModel.exportState.collectAsState()
         val volumeKeys by viewModel.volumeKeysTurnPages.collectAsState()
+        val textScale by viewModel.textScale.collectAsState()
+        val resume by viewModel.resume.collectAsState()
         val themeColors by LightThemeController.colors.collectAsState()
 
         LightTheme(colors = themeColors) {
@@ -168,10 +189,15 @@ class LibraryScreen(sealedActivity: SealedLightActivity) :
 
                     else -> LightScrollView(modifier = Modifier.fillMaxSize()) {
                         Spacer(Modifier.height(0.5f.gridUnitsAsDp()))
+                        resume?.let { target ->
+                            ResumeRow(target) { openResume(target) }
+                            SettingsDivider()
+                        }
                         // Books first: one of them stands for thirty files.
                         books.forEach { row -> BookRowView(row) { openBook(row.book) } }
                         singles.forEach { row -> SingleRowView(row) { openSingle(row.ref) } }
                         SettingsDivider()
+                        TextSizeRow(scale = textScale, onCycle = viewModel::cycleTextScale)
                         VolumeKeysRow(enabled = volumeKeys, onToggle = viewModel::toggleVolumeKeys)
                         if (totalHighlights > 0) {
                             ExportRow(
@@ -185,6 +211,10 @@ class LibraryScreen(sealedActivity: SealedLightActivity) :
                 }
             }
         }
+    }
+
+    private fun openResume(target: Resume) {
+        navigateTo<Unit>({ activity -> ReaderScreen(activity, target.chapters, target.index) })
     }
 
     private fun openBook(book: Book) {
@@ -212,6 +242,29 @@ private fun EmptyLibrary() {
         LightText(
             text = "Markdown and text files in the tool's documents folder show up " +
                 "here. A folder of files is read as a book, one file per chapter.",
+            variant = LightTextVariant.Detail,
+            lighten = true,
+        )
+    }
+}
+
+/**
+ * Straight back to the last thing read, from anywhere in the library.
+ *
+ * Without it, picking the phone up to carry on means the shelf, then the book, then the
+ * chapter list, then Continue — four taps to return to a page you never meant to leave.
+ */
+@Composable
+private fun ResumeRow(target: Resume, onClick: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .lightClickable { onClick() }
+            .padding(horizontal = 1.5f.gridUnitsAsDp(), vertical = 0.75f.gridUnitsAsDp()),
+    ) {
+        LightText(text = "Continue reading", variant = LightTextVariant.Copy)
+        LightText(
+            text = target.bookTitle?.let { "${target.title}  ·  $it" } ?: target.title,
             variant = LightTextVariant.Detail,
             lighten = true,
         )
@@ -313,6 +366,52 @@ private fun SettingsDivider() {
             .background(LightThemeTokens.colors.contentSecondary),
     )
 }
+
+/**
+ * Cycles the reader's type size, and shows the result in the reader's own style.
+ *
+ * The control has to live here because the reader has two gestures and adding a third
+ * would undo that. Showing a sample at the chosen size is what makes a control on a
+ * different screen usable: you can see what you are choosing without opening a book.
+ */
+@Composable
+private fun TextSizeRow(scale: Float, onCycle: () -> Unit) {
+    val sampleStyle = blockStyle(
+        block = Block.Paragraph(listOf(Span(SAMPLE))),
+        typography = LightThemeTokens.typography,
+        fontScale = rememberFontScale() * scale,
+    )
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .lightClickable { onCycle() }
+            .padding(horizontal = 1.5f.gridUnitsAsDp(), vertical = 0.75f.gridUnitsAsDp()),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            LightText(
+                text = "Text size",
+                variant = LightTextVariant.Copy,
+                modifier = Modifier.weight(1f),
+            )
+            LightText(
+                text = TextScale.labelFor(scale),
+                variant = LightTextVariant.Copy,
+                lighten = true,
+            )
+        }
+        Text(
+            text = SAMPLE,
+            style = sampleStyle,
+            color = LightThemeTokens.colors.contentSecondary,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(top = 0.3f.gridUnitsAsDp()),
+        )
+    }
+}
+
+private const val SAMPLE =
+    "There is only nature, in all its eternal flowering, creating microprocessors."
 
 /**
  * Turning this off gives the volume keys back to whatever you are listening to, at the

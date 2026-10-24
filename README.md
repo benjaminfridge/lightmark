@@ -228,6 +228,28 @@ is open you cannot adjust what you are listening to — so it is a switch on the
 rather than a decision made for you. On by default. Auto-repeat is consumed but ignored:
 on a panel this slow, holding a key would flip faster than it can draw.
 
+**Running text is justified, with automatic hyphenation.** The column is about
+thirty-five characters. At that measure ragged-right leaves a lot of the line unused,
+and justification without hyphenation opens rivers between the words instead; the two
+together are what make a narrow measure read well. Headings, code and rules stay
+ragged. Applied in `blockStyle`, so the measuring pass and the renderer break lines
+identically — they would disagree about where every line ends otherwise.
+
+**Text size has three steps**, a multiplier on the LightOS scale. The control is a row
+on the library, because the reader has two gestures and adding a third would undo that;
+the row renders a sample in the reader's own style so you can see what you are choosing
+without opening a book. Changing it re-measures and re-paginates, and because the
+reading position is a character offset that is *not* keyed on the scale, the page is
+re-derived around the same word. In the browser prototype the chapter goes from 46 pages
+to 33 between Medium and Small.
+
+**Continue reading** sits at the top of the library and reopens the last document read,
+whichever book it belonged to. Without it, picking the phone up means shelf, book,
+chapter list, Continue — four taps back to a page you never meant to leave. A chapter
+resumes with the rest of its book alongside it, so swiping carries on as normal, and a
+pointer to a document that has since been renamed or deleted offers nothing rather than
+opening the wrong thing.
+
 **Type is scaled the way LightOS scales it.** `LightThemeTokens.typography` holds
 unscaled design values and `LightText` scales them by screen height in its own
 `variantStyle`. This renderer cannot use `LightText`, so it reproduces that scaling via

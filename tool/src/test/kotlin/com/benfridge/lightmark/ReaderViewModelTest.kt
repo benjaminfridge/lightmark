@@ -7,6 +7,7 @@ import com.benfridge.lightmark.data.Highlight
 import com.benfridge.lightmark.data.HighlightDao
 import com.benfridge.lightmark.data.Library
 import com.benfridge.lightmark.data.ReaderSettings
+import com.benfridge.lightmark.data.TextScale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -60,6 +61,9 @@ class ReaderViewModelTest {
             currentChapters[bookId] = documentId
         }
         override suspend fun currentChapter(bookId: String) = currentChapters[bookId]
+        var lastRead: String? = null
+        override suspend fun saveLastRead(documentId: String) { lastRead = documentId }
+        override suspend fun lastRead() = lastRead
         override fun ensureSharedDirectory() = Unit
     }
 
@@ -77,9 +81,14 @@ class ReaderViewModelTest {
         override suspend fun delete(id: Long) { rows.removeAll { it.id == id } }
     }
 
-    private class FakeSettings(var volumeKeys: Boolean = true) : ReaderSettings {
+    private class FakeSettings(
+        var volumeKeys: Boolean = true,
+        var scale: Float = TextScale.DEFAULT,
+    ) : ReaderSettings {
         override suspend fun volumeKeysTurnPages() = volumeKeys
         override suspend fun setVolumeKeysTurnPages(enabled: Boolean) { volumeKeys = enabled }
+        override suspend fun textScale() = scale
+        override suspend fun setTextScale(scale: Float) { this.scale = scale }
     }
 
     private fun chapter(name: String, book: String? = "book:b") = DocumentRef(
@@ -240,6 +249,16 @@ class ReaderViewModelTest {
         vm.nextChapter()
         advanceUntilIdle()
         assertEquals(b.id, store.currentChapters["book:b"])
+    }
+
+    @Test
+    fun `the last document read is remembered, book or not`() = runTest(dispatcher) {
+        val loose = chapter("notes.md", book = null)
+        val store = FakeStore(mapOf(loose.id to "text"))
+        val vm = viewModel(store, listOf(loose))
+        vm.start()
+        advanceUntilIdle()
+        assertEquals(loose.id, store.lastRead, "a loose document is still where you were")
     }
 
     @Test
