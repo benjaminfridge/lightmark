@@ -111,7 +111,7 @@ fun paginate(blocks: List<MeasuredBlock>, pageHeight: Float): List<Page> {
                 flush()
                 continue
             } else if (block.keepWhole && end == block.lineCount && current.isNotEmpty()) {
-                val next = blocks.drop(blockIndex + 1).firstOrNull { it.lineCount > 0 }
+                val next = nextRenderable(blocks, blockIndex + 1)
                 if (next != null) {
                     val after = top + block.heightFrom(line, end - 1)
                     if (after + next.spacingBefore + next.heightFrom(0, 0) > pageHeight) {
@@ -171,6 +171,23 @@ data class PlacedSlice(
     val height: Float,
 ) {
     val bottom: Float get() = top + height
+}
+
+/**
+ * The next block from [from] that puts anything on the page.
+ *
+ * A forward scan rather than `blocks.drop(from).firstOrNull { .. }`, which copied the
+ * tail of the list on every heading. Harmless for a chapter and merely wasteful for a
+ * book, but it allocated inside the pagination loop for no reason.
+ */
+private fun nextRenderable(blocks: List<MeasuredBlock>, from: Int): MeasuredBlock? {
+    var index = from
+    while (index < blocks.size) {
+        val candidate = blocks[index]
+        if (candidate.lineCount > 0) return candidate
+        index++
+    }
+    return null
 }
 
 /**

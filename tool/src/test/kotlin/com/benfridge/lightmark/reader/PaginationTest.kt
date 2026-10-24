@@ -148,6 +148,42 @@ class PaginationTest {
     // ---- geometry ----
 
     @Test
+    fun `a book-sized document with many headings paginates correctly`() {
+        // The orphan-heading rule looks ahead from every heading. With the old list
+        // copy that was quadratic in the number of blocks; this checks the answer is
+        // unchanged at a scale where the difference shows.
+        val blocks = (0 until 4000).map { i ->
+            if (i % 10 == 0) block(1, keepWhole = true) else block(3)
+        }
+        val pages = paginate(blocks, pageHeight = 120f)
+        val placedLines = pages.sumOf { p -> p.slices.sumOf { it.lastLine - it.firstLine + 1 } }
+        val expectedLines = blocks.sumOf { it.lineCount }
+        assertEquals(expectedLines, placedLines, "no line lost or repeated at scale")
+        assertTrue(pages.size > 100, "expected many pages, got ${pages.size}")
+    }
+
+    @Test
+    fun `empty blocks between headings do not break the lookahead`() {
+        val blocks = listOf(
+            block(2),
+            block(1, keepWhole = true),
+            MeasuredBlock(emptyList(), emptyList(), emptyList(), emptyList(), 5f),
+            MeasuredBlock(emptyList(), emptyList(), emptyList(), emptyList(), 5f),
+            block(2),
+        )
+        val pages = paginate(blocks, pageHeight = 45f)
+        val seen = pages.flatMap { it.slices }.map { it.blockIndex }.toSet()
+        assertEquals(setOf(0, 1, 4), seen, "empty blocks skipped, real ones kept")
+    }
+
+    @Test
+    fun `a heading as the final block does not look past the end`() {
+        val blocks = listOf(block(2), block(1, keepWhole = true))
+        val pages = paginate(blocks, pageHeight = 100f)
+        assertEquals(listOf(0, 1), pages.single().slices.map { it.blockIndex })
+    }
+
+    @Test
     fun `layoutPage stacks slices by height plus spacing`() {
         val blocks = listOf(block(2), block(2))
         val pages = paginate(blocks, pageHeight = 45f)
