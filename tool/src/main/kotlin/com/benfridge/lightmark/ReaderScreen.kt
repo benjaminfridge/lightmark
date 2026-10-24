@@ -25,6 +25,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewModelScope
 import com.benfridge.lightmark.data.DocumentRef
 import com.benfridge.lightmark.data.DocumentRepository
+import com.benfridge.lightmark.data.DocumentStore
+import com.benfridge.lightmark.data.DataStoreReaderSettings
+import com.benfridge.lightmark.data.HighlightDao
 import com.benfridge.lightmark.data.Highlight
 import com.benfridge.lightmark.data.LightmarkDatabase
 import com.benfridge.lightmark.data.ReaderSettings
@@ -59,12 +62,26 @@ import com.thelightphone.sdk.ui.LightTextVariant
 import com.thelightphone.sdk.ui.LightTheme
 import com.thelightphone.sdk.ui.LightThemeController
 import com.thelightphone.sdk.ui.LightThemeTokens
+import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
 /** How the reader should place you when a chapter opens. */
 enum class ChapterEntry { Restore, Start, End }
+
+/**
+ * Which way a volume key turns: 1 forward, -1 back, null for anything else.
+ *
+ * Down goes forward, which reads as moving down the page and matches what other
+ * readers do with these keys. The keycodes are compile-time constants, so this is
+ * reachable from a JVM test where a `KeyEvent` instance would not be.
+ */
+internal fun volumeKeyDelta(keyCode: Int): Int? = when (keyCode) {
+    KeyEvent.KEYCODE_VOLUME_DOWN -> 1
+    KeyEvent.KEYCODE_VOLUME_UP -> -1
+    else -> null
+}
 
 /**
  * A page turn asked for by something other than a swipe.
@@ -87,9 +104,11 @@ data class LoadedChapter(
 class ReaderViewModel(
     private val chapters: List<DocumentRef>,
     startIndex: Int,
-    private val repository: DocumentRepository,
-    private val database: LightmarkDatabase,
+    private val repository: DocumentStore,
+    private val highlightDao: HighlightDao,
     private val settings: ReaderSettings,
+    /** Injected so tests can run the loads on a scheduler they control. */
+    private val io: CoroutineContext = Dispatchers.IO,
 ) : LightViewModel<Unit>() {
 
     val loaded = MutableStateFlow<LoadedChapter?>(null)
@@ -121,9 +140,14 @@ class ReaderViewModel(
 
     override fun onScreenShow(screen: SimpleLightScreen<Unit>) {
         super.onScreenShow(screen)
+        start()
+    }
+
+    /** The body of [onScreenShow], callable without a screen to hand. */
+    internal fun start() {
         if (started) return
         started = true
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(io) {
             volumeKeysTurnPages = settings.volumeKeysTurnPages()
         }
         open(index, ChapterEntry.Restore)
@@ -155,13 +179,15 @@ class ReaderViewModel(
      * Returning true stops LightOS acting on the key, so the volume does not change.
      * Returning false lets it through untouched when the setting is off.
      */
-    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean = pressKey(keyCode)
+
+    /**
+     * The body of [onKeyDown] without the event, which a JVM test cannot construct:
+     * `KeyEvent` is one of the android.jar stubs that throws when instantiated.
+     */
+    internal fun pressKey(keyCode: Int): Boolean {
         if (!volumeKeysTurnPages) return false
-        val delta = when (keyCode) {
-            KeyEvent.KEYCODE_VOLUME_DOWN -> 1
-            KeyEvent.KEYCODE_VOLUME_UP -> -1
-            else -> return false
-        }
+        val delta = volumeKeyDelta(keyCode) ?: return false
         pageNudge.value = PageNudge(delta, ++nudgeId)
         return true
     }
@@ -182,7 +208,7 @@ class ReaderViewModel(
     }
 
     private val Int.isVolumeKey: Boolean
-        get() = this == KeyEvent.KEYCODE_VOLUME_DOWN || this == KeyEvent.KEYCODE_VOLUME_UP
+        get() = volumeKeyDelta(this) != null
 
     /**
      * Swiping past the last page continues into the next chapter, and swiping back from
@@ -215,7 +241,7 @@ class ReaderViewModel(
         anchorOffset = null
         pageOffset = 0
 
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(io) {
             val source = repository.read(ref)
             if (attempt != generation) return@launch
             if (source == null) {
@@ -225,7 +251,7 @@ class ReaderViewModel(
 
             val saved = if (entry == ChapterEntry.Restore) repository.offset(ref.id) else 0
             ref.bookId?.let { repository.saveCurrentChapter(it, ref.id) }
-            val chapterHighlights = database.highlights().list(ref.id)
+            val chapterHighlights = highlightDao.list(ref.id)
             val document = Markdown.parse(source)
 
             // Two chapters opened in quick succession race here, and the slower read
@@ -246,12 +272,12 @@ class ReaderViewModel(
     private fun persist() {
         val ref = chapters.getOrNull(index) ?: return
         val offset = pageOffset
-        viewModelScope.launch(Dispatchers.IO) { repository.saveOffset(ref.id, offset) }
+        viewModelScope.launch(io) { repository.saveOffset(ref.id, offset) }
     }
 
     private suspend fun reload() {
         val ref = chapters.getOrNull(index) ?: return
-        highlights.value = database.highlights().list(ref.id)
+        highlights.value = highlightDao.list(ref.id)
     }
 
     /**
@@ -264,8 +290,8 @@ class ReaderViewModel(
         if (existing != null) {
             anchorOffset = null
             selection.value = null
-            viewModelScope.launch(Dispatchers.IO) {
-                database.highlights().delete(existing.id)
+            viewModelScope.launch(io) {
+                highlightDao.delete(existing.id)
                 reload()
             }
             return false
@@ -291,8 +317,8 @@ class ReaderViewModel(
         val state = loaded.value ?: return
         val plain = state.document.plainText
 
-        viewModelScope.launch(Dispatchers.IO) {
-            val dao = database.highlights()
+        viewModelScope.launch(io) {
+            val dao = highlightDao
             val plan = planMerge(dao.list(state.ref.id), range.start, range.end)
             plan.absorbedIds.forEach { dao.delete(it) }
             dao.insert(
@@ -346,8 +372,8 @@ class ReaderScreen(
         chapters = chapters,
         startIndex = startIndex,
         repository = DocumentRepository(lightContext, lightContext.dataStore),
-        database = lightContext.buildDatabase(LightmarkDatabase::class.java, LibraryScreen.DB_NAME),
-        settings = ReaderSettings(lightContext.dataStore),
+        highlightDao = lightContext.buildDatabase(LightmarkDatabase::class.java, LibraryScreen.DB_NAME).highlights(),
+        settings = DataStoreReaderSettings(lightContext.dataStore),
     )
 
     @Composable
@@ -394,6 +420,9 @@ class ReaderScreen(
                         val doc = state.document
                         val measurer = rememberTextMeasurer()
                         val fontScale = rememberFontScale()
+                        // Null until the measuring pass finishes. An empty list
+                        // paginates to no pages, which is already the "nothing to draw
+                        // yet" state every branch below handles.
                         val blocks = rememberMeasuredBlocks(
                             document = doc,
                             contentWidthPx = contentWidth,
@@ -401,7 +430,7 @@ class ReaderScreen(
                             typography = typography,
                             fontScale = fontScale,
                             measurer = measurer,
-                        )
+                        ) ?: emptyList()
                         val pages = remember(blocks, pageHeight) { paginate(blocks, pageHeight) }
                         val blockStarts = remember(state.token) { doc.blocks.map { it.start } }
 

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -26,6 +27,7 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.yield
 import androidx.compose.ui.unit.dp
 import com.benfridge.lightmark.markdown.Block
 import com.benfridge.lightmark.markdown.Document
@@ -142,8 +144,20 @@ private fun Set<Emphasis>.toSpanStyle(): SpanStyle = SpanStyle(
 )
 
 /**
- * Measures every block once at the page width, producing the line geometry
- * [com.benfridge.lightmark.reader.paginate] needs.
+ * Measures every block at the page width, off the composition thread.
+ *
+ * Returns null until the pass finishes. It used to run inside `remember`, which meant
+ * the first frame of a chapter could not be drawn until every block had been laid out:
+ * fine for ten pages, seconds of frozen screen for a long one, and repeated whenever an
+ * activity recreation threw composition away.
+ *
+ * It runs in a coroutine now, yielding every [YIELD_EVERY] blocks so frames keep going
+ * while it works. Deliberately on the composition's own dispatcher rather than
+ * `Dispatchers.Default`: a dedicated `TextMeasurer` could be built for a worker thread,
+ * but the `FontFamily.Resolver` behind it comes from the composition and I have no way
+ * to verify off-thread font resolution on the real device from here. Yielding solves
+ * the problem that was actually observable — a blocked first frame — without betting on
+ * that. Moving it to a worker is the next step once it can be tested on hardware.
  *
  * Highlights are deliberately not part of this: they only set background and colour, so
  * they cannot move a line, and measuring without them means a new highlight never
@@ -157,47 +171,84 @@ internal fun rememberMeasuredBlocks(
     typography: LightTypography,
     fontScale: Float,
     measurer: TextMeasurer,
-): List<MeasuredBlock> = remember(document, contentWidthPx, unitPx, typography, fontScale) {
-    if (contentWidthPx <= 0 || unitPx <= 0f) return@remember emptyList()
+): List<MeasuredBlock>? = produceState<List<MeasuredBlock>?>(
+    initialValue = null,
+    document,
+    contentWidthPx,
+    unitPx,
+    typography,
+    fontScale,
+) {
+    // Drop the previous chapter's geometry before measuring the new one, or a stale
+    // layout is briefly used to place the new text.
+    value = null
+    value = measureBlocks(document, contentWidthPx, unitPx, typography, fontScale, measurer)
+}.value
 
-    document.blocks.map { placed ->
-        val block = placed.block
-        val spacing = blockSpacingUnits(block) * unitPx
+/** Blocks measured between yields. Small enough that no single run holds up a frame. */
+private const val YIELD_EVERY = 16
 
-        if (block is Block.Rule) {
-            val h = ReaderMetrics.RULE_UNITS * unitPx
-            return@map MeasuredBlock(
-                lineTops = listOf(0f),
-                lineBottoms = listOf(h),
-                charStarts = listOf(0),
-                charEnds = listOf(0),
-                spacingBefore = spacing,
-                keepWhole = true,
-            )
-        }
+private suspend fun measureBlocks(
+    document: Document,
+    contentWidthPx: Int,
+    unitPx: Float,
+    typography: LightTypography,
+    fontScale: Float,
+    measurer: TextMeasurer,
+): List<MeasuredBlock> {
+    if (contentWidthPx <= 0 || unitPx <= 0f) return emptyList()
 
-        val insetPx = (blockInsetUnits(block) * unitPx).toInt()
-        val text = blockAnnotated(block)
-        if (text.isEmpty()) {
-            return@map MeasuredBlock(emptyList(), emptyList(), emptyList(), emptyList(), spacing)
-        }
+    val measured = ArrayList<MeasuredBlock>(document.blocks.size)
+    document.blocks.forEachIndexed { index, placed ->
+        if (index % YIELD_EVERY == 0) yield()
+        measured += measureBlock(placed.block, contentWidthPx, unitPx, typography, fontScale, measurer)
+    }
+    return measured
+}
 
-        val layout = measurer.measure(
-            text = text,
-            style = blockStyle(block, typography, fontScale),
-            constraints = Constraints(maxWidth = (contentWidthPx - insetPx).coerceAtLeast(1)),
-        )
+private fun measureBlock(
+    block: Block,
+    contentWidthPx: Int,
+    unitPx: Float,
+    typography: LightTypography,
+    fontScale: Float,
+    measurer: TextMeasurer,
+): MeasuredBlock {
+    val spacing = blockSpacingUnits(block) * unitPx
 
-        val lines = layout.lineCount
-        MeasuredBlock(
-            lineTops = List(lines) { layout.getLineTop(it) },
-            lineBottoms = List(lines) { layout.getLineBottom(it) },
-            charStarts = List(lines) { layout.getLineStart(it) },
-            charEnds = List(lines) { layout.getLineEnd(it, visibleEnd = false) },
+    if (block is Block.Rule) {
+        val height = ReaderMetrics.RULE_UNITS * unitPx
+        return MeasuredBlock(
+            lineTops = listOf(0f),
+            lineBottoms = listOf(height),
+            charStarts = listOf(0),
+            charEnds = listOf(0),
             spacingBefore = spacing,
-            keepWhole = block is Block.Heading,
+            keepWhole = true,
         )
     }
+
+    val insetPx = (blockInsetUnits(block) * unitPx).toInt()
+    val text = blockAnnotated(block)
+    if (text.isEmpty()) {
+        return MeasuredBlock(emptyList(), emptyList(), emptyList(), emptyList(), spacing)
+    }
+
+    val layout = measurer.measure(
+        text = text,
+        style = blockStyle(block, typography, fontScale),
+        constraints = Constraints(maxWidth = (contentWidthPx - insetPx).coerceAtLeast(1)),
+    )
+
+    val lines = layout.lineCount
+    return MeasuredBlock(
+        lineTops = List(lines) { layout.getLineTop(it) },
+        lineBottoms = List(lines) { layout.getLineBottom(it) },
+        charStarts = List(lines) { layout.getLineStart(it) },
+        charEnds = List(lines) { layout.getLineEnd(it, visibleEnd = false) },
+        spacingBefore = spacing,
+        keepWhole = block is Block.Heading,
+    )
 }
 
 /**
