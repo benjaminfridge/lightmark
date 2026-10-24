@@ -31,11 +31,14 @@ import com.benfridge.lightmark.data.ReaderSettings
 import com.benfridge.lightmark.data.planMerge
 import com.benfridge.lightmark.markdown.Document
 import com.benfridge.lightmark.markdown.Markdown
+import com.benfridge.lightmark.reader.PageStep
 import com.benfridge.lightmark.reader.layoutPage
 import com.benfridge.lightmark.reader.pageContaining
 import com.benfridge.lightmark.reader.paginate
 import com.benfridge.lightmark.reader.readerGestures
 import com.benfridge.lightmark.reader.sliceIndexAt
+import com.benfridge.lightmark.reader.stepBackward
+import com.benfridge.lightmark.reader.stepForward
 import com.benfridge.lightmark.reader.startOffsetOf
 import com.benfridge.lightmark.ui.DocumentRange
 import com.benfridge.lightmark.ui.PageContent
@@ -73,7 +76,6 @@ data class PageNudge(val delta: Int, val id: Long)
 
 /** One chapter, loaded and ready to lay out. */
 data class LoadedChapter(
-    val index: Int,
     val ref: DocumentRef,
     val document: Document,
     val entry: ChapterEntry,
@@ -106,8 +108,13 @@ class ReaderViewModel(
     private var index = startIndex.coerceIn(0, (chapters.size - 1).coerceAtLeast(0))
     private var anchorOffset: Int? = null
     private var pageOffset = 0
-    private var token = 0L
     private var started = false
+
+    /**
+     * Rises on every [open]. A load that finishes after a newer one started is
+     * discarded, and it doubles as the token the screen keys its state on.
+     */
+    private var generation = 0L
 
     val hasPrevious: Boolean get() = index > 0
     val hasNext: Boolean get() = index < chapters.lastIndex
@@ -184,45 +191,55 @@ class ReaderViewModel(
      * place rather than pushed, so the back key always returns to the chapter list
      * however far you have read, instead of unwinding one chapter at a time.
      */
-    fun nextChapter(): Boolean {
-        if (!hasNext) return false
+    fun nextChapter() {
         persist()
         open(index + 1, ChapterEntry.Start)
-        return true
     }
 
-    fun previousChapter(): Boolean {
-        if (!hasPrevious) return false
+    fun previousChapter() {
         persist()
         open(index - 1, ChapterEntry.End)
-        return true
     }
 
     private fun open(target: Int, entry: ChapterEntry) {
-        index = target
+        // Validate before moving: a rejected target must not leave `index` pointing
+        // past the end, where persist() and hasNext would both be wrong.
         val ref = chapters.getOrNull(target) ?: return
+        index = target
+
+        val attempt = ++generation
         loaded.value = null
+        // Reset, or a chapter that failed once keeps showing its error over the next
+        // chapter's load.
+        failed.value = false
         selection.value = null
         anchorOffset = null
         pageOffset = 0
 
         viewModelScope.launch(Dispatchers.IO) {
             val source = repository.read(ref)
+            if (attempt != generation) return@launch
             if (source == null) {
                 failed.value = true
                 return@launch
             }
-            failed.value = false
+
             val saved = if (entry == ChapterEntry.Restore) repository.offset(ref.id) else 0
             ref.bookId?.let { repository.saveCurrentChapter(it, ref.id) }
-            highlights.value = database.highlights().list(ref.id)
+            val chapterHighlights = database.highlights().list(ref.id)
+            val document = Markdown.parse(source)
+
+            // Two chapters opened in quick succession race here, and the slower read
+            // would otherwise land last and win. Swiping twice would leave the reader
+            // showing the first chapter while `index` pointed at the second.
+            if (attempt != generation) return@launch
+            highlights.value = chapterHighlights
             loaded.value = LoadedChapter(
-                index = target,
                 ref = ref,
-                document = Markdown.parse(source),
+                document = document,
                 entry = entry,
                 savedOffset = saved,
-                token = ++token,
+                token = attempt,
             )
         }
     }
@@ -422,18 +439,23 @@ class ReaderScreen(
                             readingOffset = startOffsetOf(target, blockStarts)
                         }
 
-                        // One path forward and one back, shared by the swipe and the
-                        // volume keys, so the two can never drift apart at a chapter
-                        // boundary.
-                        fun advance() {
-                            if (pageIndex < pages.lastIndex) goToPage(pageIndex + 1)
-                            else viewModel.nextChapter()
+                        // The swipe and the volume keys both come through here, so the
+                        // two cannot drift apart at a chapter boundary. The decision
+                        // itself is in stepForward/stepBackward, where it is testable.
+                        fun apply(step: PageStep) {
+                            when (step) {
+                                is PageStep.ToPage -> goToPage(step.index)
+                                PageStep.NextChapter -> viewModel.nextChapter()
+                                PageStep.PreviousChapter -> viewModel.previousChapter()
+                                PageStep.Nowhere -> Unit
+                            }
                         }
 
-                        fun retreat() {
-                            if (pageIndex > 0) goToPage(pageIndex - 1)
-                            else viewModel.previousChapter()
-                        }
+                        fun advance() =
+                            apply(stepForward(pageIndex, pages.size, viewModel.hasNext))
+
+                        fun retreat() =
+                            apply(stepBackward(pageIndex, pages.size, viewModel.hasPrevious))
 
                         LaunchedEffect(pageNudge, pages) {
                             val nudge = pageNudge ?: return@LaunchedEffect
