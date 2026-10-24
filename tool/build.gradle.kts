@@ -41,6 +41,11 @@ android {
         minSdk = rootProject.ext["minSdk"] as Int
         targetSdk = rootProject.ext["targetSdk"] as Int
 
+        // The Light Phone III is arm64. Shipping x86, x86_64 and armeabi-v7a adds
+        // nothing it can run. Note this also means the APK will not install on an
+        // x86_64 emulator, which matters only on an Intel Mac.
+        ndk { abiFilters += "arm64-v8a" }
+
         manifestPlaceholders["sdkVersion"] = property("sdkVersion") as String
     }
 
@@ -81,7 +86,19 @@ ksp {
 }
 
 dependencies {
-    implementation(project(":sdk:client"))
+    /*
+     * :sdk:ui brings ML Kit's barcode scanner and CameraX for LightQrCodeScanner.
+     * Lightmark never scans anything, and the scanner's native library ships for four
+     * ABIs: about 20MB of the APK, plus 860KB of model assets. Excluding it also drops
+     * the CAMERA permission, which a reader has no business asking for.
+     *
+     * An exclude, not a resolutionStrategy or a dependencySubstitution — the Light
+     * plugin forbids both in build scripts, and rightly so.
+     */
+    implementation(project(":sdk:client")) {
+        exclude(group = "com.google.mlkit")
+        exclude(group = "androidx.camera")
+    }
     testImplementation(libs.kotlin.test)
     // Lets the view-model tests drive viewModelScope on a scheduler they control.
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")

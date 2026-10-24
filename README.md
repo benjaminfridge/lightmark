@@ -204,15 +204,46 @@ WAKE_LOCK  FOREGROUND_SERVICE  RECEIVE_BOOT_COMPLETED
 ```
 
 They arrive transitively from `:sdk:client`, which every tool depends on: Ktor and
-OkHttp bring `INTERNET`, ML Kit's barcode scanner brings `CAMERA` (and ~880KB of
-`.tflite` models), media3 and WorkManager bring the service and boot permissions. The
-SDK's own source notes this is expected — "a bare platform permission says nothing about
-what the tool asked for (any transitive dependency can declare one)" — which is why the
-`permissions` list in `lighttool.toml` is the statement of intent, not the manifest.
+OkHttp bring `INTERNET`, media3 and WorkManager bring the service and boot permissions.
+The SDK's own source notes this is expected — "a bare platform permission says nothing
+about what the tool asked for (any transitive dependency can declare one)" — which is
+why the `permissions` list in `lighttool.toml` is the statement of intent, not the
+manifest.
 
-Trimming the unused SDK dependencies is worth doing before submission; another developer
-reported cutting about 22MB from their APK that way. For reference, this tool currently
-builds to 79MB debug and 25MB release (R8 minified and resource-shrunk).
+### CAMERA cannot currently be removed
+
+`CAMERA`, and a `uses-feature` for camera hardware, are declared in
+`light-sdk/sdk/ui/src/main/AndroidManifest.xml` — the UI module every tool depends on,
+for `LightQrCodeScanner`. Excluding ML Kit and CameraX (see below) removes the code and
+the native libraries but not that declaration, and a tool has no sanctioned way to
+override it:
+
+- the plugin rejects `src/main/AndroidManifest.xml` outright ("not allowed — declare
+  your tool's metadata and permissions in lighttool.toml"), so `tools:node="remove"` has
+  nowhere to live;
+- `ManifestGenerator` only ever *adds* `<uses-permission>` entries from the toml;
+- `resolutionStrategy` and `dependencySubstitution` are both forbidden in build scripts.
+
+The fix belongs upstream: move the scanner's permission out of the blanket UI manifest,
+the way foreground-service permissions are already handled, through
+`CAPABILITY_IMPLIED_PERMISSIONS` rather than a declaration every tool inherits. Until
+then a reader ships asking for camera access, and that needs disclosing at submission.
+
+## APK size
+
+4.09 MB release, down from 25.11 MB, by two changes in `tool/build.gradle.kts`:
+
+- **Excluding `com.google.mlkit` and `androidx.camera`** from `:sdk:client`. They come
+  from `:sdk:ui` for the barcode scanner, which Lightmark never uses, and the scanner's
+  native library `libbarhopper_v3.so` shipped for four ABIs — about 20MB, plus 860KB of
+  `.tflite` models. An `exclude`, not a `resolutionStrategy` or `dependencySubstitution`,
+  since the plugin forbids both.
+- **`ndk { abiFilters += "arm64-v8a" }`.** The Light Phone III is arm64; the other three
+  ABIs are weight it can never run. Worth knowing this also means the APK will not
+  install on an x86_64 emulator, which only matters on an Intel Mac.
+
+What remains is 2.8MB of `classes.dex`, 780KB of `resources.arsc`, and OkHttp's 130KB
+public-suffix list.
 
 ## Design notes
 
