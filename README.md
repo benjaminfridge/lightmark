@@ -221,6 +221,20 @@ drag highlights. A plain tap does nothing, deliberately. Leaving is the hardware
 key, which the SDK already routes through `goBack()` — so there is no top bar spending
 two of the screen's thirty-one vertical grid units on every page.
 
+**Volume keys turn pages**, down for next and up for back. `LightActivity` offers every
+key except BACK and HOME to the foreground screen before acting on it, so consuming them
+means they page instead of changing the volume. That is a real trade — while the reader
+is open you cannot adjust what you are listening to — so it is a switch on the library
+rather than a decision made for you. On by default. Auto-repeat is consumed but ignored:
+on a panel this slow, holding a key would flip faster than it can draw.
+
+**Type is scaled the way LightOS scales it.** `LightThemeTokens.typography` holds
+unscaled design values and `LightText` scales them by screen height in its own
+`variantStyle`. This renderer cannot use `LightText`, so it reproduces that scaling via
+the SDK's public `designVerticalPxToSp`. Skipping it rendered the reader about 27% larger
+than every other surface. Headings start at `subtitle`, not `title`: `title` is 115sp of
+design scale, a fifth of the screen for one line, and is the clock face.
+
 **Swiping carries across chapter boundaries.** Past the last page of a chapter the next
 one opens at its first page; back from the first page reopens the previous one at its
 last. The chapter is swapped in place rather than pushed onto the back stack, so back

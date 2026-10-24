@@ -3,6 +3,7 @@ package com.benfridge.lightmark
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewModelScope
@@ -19,6 +21,7 @@ import com.benfridge.lightmark.data.DocumentRef
 import com.benfridge.lightmark.data.DocumentRepository
 import com.benfridge.lightmark.data.DocumentSource
 import com.benfridge.lightmark.data.LightmarkDatabase
+import com.benfridge.lightmark.data.ReaderSettings
 import com.benfridge.lightmark.export.ExportOutcome
 import com.benfridge.lightmark.export.HighlightExporter
 import com.thelightphone.sdk.InitialScreen
@@ -27,6 +30,8 @@ import com.thelightphone.sdk.LightViewModel
 import com.thelightphone.sdk.SealedLightActivity
 import com.thelightphone.sdk.SimpleLightScreen
 import com.thelightphone.sdk.buildDatabase
+import com.thelightphone.sdk.ui.LightIcon
+import com.thelightphone.sdk.ui.LightIcons
 import com.thelightphone.sdk.ui.LightScrollView
 import com.thelightphone.sdk.ui.LightText
 import com.thelightphone.sdk.ui.LightTextVariant
@@ -63,6 +68,7 @@ class LibraryViewModel(
     private val repository: DocumentRepository,
     private val database: LightmarkDatabase,
     private val exporter: HighlightExporter,
+    private val settings: ReaderSettings,
 ) : LightViewModel<Unit>() {
 
     val books = MutableStateFlow<List<BookRow>>(emptyList())
@@ -70,6 +76,7 @@ class LibraryViewModel(
     val loaded = MutableStateFlow(false)
     val totalHighlights = MutableStateFlow(0)
     val exportState = MutableStateFlow<ExportState>(ExportState.Idle)
+    val volumeKeysTurnPages = MutableStateFlow(true)
 
     override fun onScreenShow(screen: SimpleLightScreen<Unit>) {
         super.onScreenShow(screen)
@@ -97,8 +104,15 @@ class LibraryViewModel(
                 )
             }
             totalHighlights.value = counts.values.sum()
+            volumeKeysTurnPages.value = settings.volumeKeysTurnPages()
             loaded.value = true
         }
+    }
+
+    fun toggleVolumeKeys() {
+        val next = !volumeKeysTurnPages.value
+        volumeKeysTurnPages.value = next
+        viewModelScope.launch(Dispatchers.IO) { settings.setVolumeKeysTurnPages(next) }
     }
 
     fun export() {
@@ -122,6 +136,7 @@ class LibraryScreen(sealedActivity: SealedLightActivity) :
             repository = DocumentRepository(lightContext, lightContext.dataStore),
             database = database,
             exporter = HighlightExporter(lightContext.fileShare, database.highlights()),
+            settings = ReaderSettings(lightContext.dataStore),
         )
     }
 
@@ -132,6 +147,7 @@ class LibraryScreen(sealedActivity: SealedLightActivity) :
         val loaded by viewModel.loaded.collectAsState()
         val totalHighlights by viewModel.totalHighlights.collectAsState()
         val exportState by viewModel.exportState.collectAsState()
+        val volumeKeys by viewModel.volumeKeysTurnPages.collectAsState()
         val themeColors by LightThemeController.colors.collectAsState()
 
         LightTheme(colors = themeColors) {
@@ -152,6 +168,8 @@ class LibraryScreen(sealedActivity: SealedLightActivity) :
                         // Books first: one of them stands for thirty files.
                         books.forEach { row -> BookRowView(row) { openBook(row.book) } }
                         singles.forEach { row -> SingleRowView(row) { openSingle(row.ref) } }
+                        SettingsDivider()
+                        VolumeKeysRow(enabled = volumeKeys, onToggle = viewModel::toggleVolumeKeys)
                         if (totalHighlights > 0) {
                             ExportRow(
                                 total = totalHighlights,
@@ -255,18 +273,7 @@ private fun SingleRowView(row: SingleRow, onClick: () -> Unit) {
  */
 @Composable
 private fun ExportRow(total: Int, state: ExportState, onExport: () -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 1f.gridUnitsAsDp()),
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 1.5f.gridUnitsAsDp())
-                .height(1.dp)
-                .background(LightThemeTokens.colors.contentSecondary),
-        )
+    Column(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -289,6 +296,46 @@ private fun ExportRow(total: Int, state: ExportState, onExport: () -> Unit) {
                 lighten = true,
             )
         }
+    }
+}
+
+/** Separates the shelf from the two things you can do to it. */
+@Composable
+private fun SettingsDivider() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 1.5f.gridUnitsAsDp(), vertical = 1f.gridUnitsAsDp())
+            .height(1.dp)
+            .background(LightThemeTokens.colors.contentSecondary),
+    )
+}
+
+/**
+ * Turning this off gives the volume keys back to whatever you are listening to, at the
+ * cost of swiping for every page.
+ */
+@Composable
+private fun VolumeKeysRow(enabled: Boolean, onToggle: () -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .lightClickable { onToggle() }
+            .padding(horizontal = 1.5f.gridUnitsAsDp(), vertical = 0.75f.gridUnitsAsDp()),
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            LightText(text = "Volume keys turn pages", variant = LightTextVariant.Copy)
+            LightText(
+                text = if (enabled) "Down for next, up for back"
+                else "Volume keys change the volume",
+                variant = LightTextVariant.Detail,
+                lighten = true,
+            )
+        }
+        LightIcon(
+            icon = if (enabled) LightIcons.TOGGLE_STATE_ON else LightIcons.TOGGLE_STATE_OFF,
+        )
     }
 }
 

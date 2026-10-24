@@ -24,6 +24,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
 import com.benfridge.lightmark.markdown.Block
 import com.benfridge.lightmark.markdown.Document
@@ -32,6 +34,7 @@ import com.benfridge.lightmark.reader.MeasuredBlock
 import com.benfridge.lightmark.reader.PlacedSlice
 import com.thelightphone.sdk.ui.LightColors
 import com.thelightphone.sdk.ui.LightTypography
+import com.thelightphone.sdk.ui.designVerticalPxToSp
 
 /**
  * Reader typography and page rhythm.
@@ -70,18 +73,56 @@ internal fun blockInsetUnits(block: Block): Float = when (block) {
     else -> 0f
 }
 
-internal fun blockStyle(block: Block, typography: LightTypography): TextStyle = when (block) {
-    is Block.Heading -> when (block.level) {
-        1 -> typography.title
-        2 -> typography.heading
-        3 -> typography.subheading
-        else -> typography.copy
+/**
+ * The type scale LightOS applies to every other surface.
+ *
+ * `LightThemeTokens.typography` holds unscaled *design* values; `LightText` scales them
+ * by screen height before rendering, in its own `variantStyle`. This renderer cannot use
+ * `LightText` (it needs `AnnotatedString` and `onTextLayout`), so it has to apply the
+ * same scale itself. Skipping it renders the reader about 27% larger than the rest of
+ * the system, which is both wrong and the kind of thing a design review notices.
+ *
+ * The scale is derived through the SDK's own public helper rather than reading
+ * `LocalConfiguration` directly, so it cannot drift from what `LightText` does.
+ */
+@Composable
+internal fun rememberFontScale(): Float = 1f.designVerticalPxToSp().value
+
+private fun TextUnit.scaled(factor: Float): TextUnit =
+    if (this == TextUnit.Unspecified) this else (value * factor).sp
+
+private fun TextStyle.scaled(factor: Float): TextStyle = copy(
+    fontSize = fontSize.scaled(factor),
+    lineHeight = lineHeight.scaled(factor),
+    letterSpacing = letterSpacing.scaled(factor),
+)
+
+/**
+ * [fontScale] comes from [rememberFontScale].
+ *
+ * Headings deliberately start at `subtitle`, not `title`: `title` is 115sp of design
+ * scale, which is a fifth of the screen's height for a single line. It is the clock
+ * face, not a chapter opening.
+ */
+internal fun blockStyle(
+    block: Block,
+    typography: LightTypography,
+    fontScale: Float,
+): TextStyle {
+    val base = when (block) {
+        is Block.Heading -> when (block.level) {
+            1 -> typography.subtitle
+            2 -> typography.heading
+            3 -> typography.subheading
+            else -> typography.copy
+        }
+        is Block.Paragraph -> typography.paragraphWide
+        is Block.Quote -> typography.paragraphWide.copy(fontStyle = FontStyle.Italic)
+        is Block.ListItem -> typography.paragraphWide
+        is Block.Code -> typography.detail.copy(fontFamily = FontFamily.Monospace)
+        is Block.Rule -> typography.paragraphWide
     }
-    is Block.Paragraph -> typography.paragraphWide
-    is Block.Quote -> typography.paragraphWide.copy(fontStyle = FontStyle.Italic)
-    is Block.ListItem -> typography.paragraphWide
-    is Block.Code -> typography.detail.copy(fontFamily = FontFamily.Monospace)
-    is Block.Rule -> typography.paragraphWide
+    return base.scaled(fontScale)
 }
 
 /** Emphasis only. Highlights are layered on at render time and change no metrics. */
@@ -114,8 +155,9 @@ internal fun rememberMeasuredBlocks(
     contentWidthPx: Int,
     unitPx: Float,
     typography: LightTypography,
+    fontScale: Float,
     measurer: TextMeasurer,
-): List<MeasuredBlock> = remember(document, contentWidthPx, unitPx, typography) {
+): List<MeasuredBlock> = remember(document, contentWidthPx, unitPx, typography, fontScale) {
     if (contentWidthPx <= 0 || unitPx <= 0f) return@remember emptyList()
 
     document.blocks.map { placed ->
@@ -142,7 +184,7 @@ internal fun rememberMeasuredBlocks(
 
         val layout = measurer.measure(
             text = text,
-            style = blockStyle(block, typography),
+            style = blockStyle(block, typography, fontScale),
             constraints = Constraints(maxWidth = (contentWidthPx - insetPx).coerceAtLeast(1)),
         )
 
@@ -173,6 +215,7 @@ internal fun PageContent(
     selection: DocumentRange?,
     colors: LightColors,
     typography: LightTypography,
+    fontScale: Float,
     unitPx: Float,
     density: Density,
     onSliceLayout: (Int, TextLayoutResult) -> Unit,
@@ -211,7 +254,7 @@ internal fun PageContent(
                 if (block is Block.ListItem && slice.isBlockStart) {
                     Text(
                         text = block.marker,
-                        style = blockStyle(block, typography),
+                        style = blockStyle(block, typography, fontScale),
                         color = colors.contentSecondary,
                     )
                 }
@@ -226,7 +269,7 @@ internal fun PageContent(
                         selection = selection,
                         colors = colors,
                     ),
-                    style = blockStyle(block, typography),
+                    style = blockStyle(block, typography, fontScale),
                     color = if (block is Block.Quote) colors.contentSecondary else colors.content,
                     maxLines = slice.lastLine - slice.firstLine + 1,
                     onTextLayout = { onSliceLayout(index, it) },

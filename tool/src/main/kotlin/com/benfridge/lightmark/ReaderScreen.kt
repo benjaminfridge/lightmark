@@ -1,5 +1,6 @@
 package com.benfridge.lightmark
 
+import android.view.KeyEvent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -26,6 +27,7 @@ import com.benfridge.lightmark.data.DocumentRef
 import com.benfridge.lightmark.data.DocumentRepository
 import com.benfridge.lightmark.data.Highlight
 import com.benfridge.lightmark.data.LightmarkDatabase
+import com.benfridge.lightmark.data.ReaderSettings
 import com.benfridge.lightmark.data.planMerge
 import com.benfridge.lightmark.markdown.Document
 import com.benfridge.lightmark.markdown.Markdown
@@ -39,6 +41,7 @@ import com.benfridge.lightmark.ui.DocumentRange
 import com.benfridge.lightmark.ui.PageContent
 import com.benfridge.lightmark.ui.ReaderMetrics
 import com.benfridge.lightmark.ui.blockInsetUnits
+import com.benfridge.lightmark.ui.rememberFontScale
 import com.benfridge.lightmark.ui.rememberMeasuredBlocks
 import com.benfridge.lightmark.ui.selectionBetween
 import com.benfridge.lightmark.ui.snapToWord
@@ -60,6 +63,14 @@ import kotlinx.coroutines.launch
 /** How the reader should place you when a chapter opens. */
 enum class ChapterEntry { Restore, Start, End }
 
+/**
+ * A page turn asked for by something other than a swipe.
+ *
+ * [id] rises on every nudge so two presses in the same direction are distinct values and
+ * the second is not swallowed as a no-op state change.
+ */
+data class PageNudge(val delta: Int, val id: Long)
+
 /** One chapter, loaded and ready to lay out. */
 data class LoadedChapter(
     val index: Int,
@@ -76,6 +87,7 @@ class ReaderViewModel(
     startIndex: Int,
     private val repository: DocumentRepository,
     private val database: LightmarkDatabase,
+    private val settings: ReaderSettings,
 ) : LightViewModel<Unit>() {
 
     val loaded = MutableStateFlow<LoadedChapter?>(null)
@@ -86,6 +98,11 @@ class ReaderViewModel(
 
     val failed = MutableStateFlow(false)
 
+    /** Set by a volume-key press; the screen applies it and clears it. */
+    val pageNudge = MutableStateFlow<PageNudge?>(null)
+
+    private var volumeKeysTurnPages = true
+    private var nudgeId = 0L
     private var index = startIndex.coerceIn(0, (chapters.size - 1).coerceAtLeast(0))
     private var anchorOffset: Int? = null
     private var pageOffset = 0
@@ -100,6 +117,9 @@ class ReaderViewModel(
         super.onScreenShow(screen)
         if (started) return
         started = true
+        viewModelScope.launch(Dispatchers.IO) {
+            volumeKeysTurnPages = settings.volumeKeysTurnPages()
+        }
         open(index, ChapterEntry.Restore)
     }
 
@@ -121,6 +141,42 @@ class ReaderViewModel(
     fun notePageOffset(offset: Int) {
         pageOffset = offset
     }
+
+    /**
+     * Volume down goes forward, volume up goes back, which reads as moving down the
+     * page and matches what other readers do with these keys.
+     *
+     * Returning true stops LightOS acting on the key, so the volume does not change.
+     * Returning false lets it through untouched when the setting is off.
+     */
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        if (!volumeKeysTurnPages) return false
+        val delta = when (keyCode) {
+            KeyEvent.KEYCODE_VOLUME_DOWN -> 1
+            KeyEvent.KEYCODE_VOLUME_UP -> -1
+            else -> return false
+        }
+        pageNudge.value = PageNudge(delta, ++nudgeId)
+        return true
+    }
+
+    /** Consume the matching up event so LightOS does not act on it either. */
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean =
+        volumeKeysTurnPages && keyCode.isVolumeKey
+
+    /**
+     * Held keys repeat. Consumed but ignored: on a panel this slow, auto-repeat would
+     * flip through a chapter faster than it can draw, and faster than anyone reads.
+     */
+    override fun onKeyMultiple(keyCode: Int, repeatCount: Int, event: KeyEvent): Boolean =
+        volumeKeysTurnPages && keyCode.isVolumeKey
+
+    fun consumeNudge() {
+        pageNudge.value = null
+    }
+
+    private val Int.isVolumeKey: Boolean
+        get() = this == KeyEvent.KEYCODE_VOLUME_DOWN || this == KeyEvent.KEYCODE_VOLUME_UP
 
     /**
      * Swiping past the last page continues into the next chapter, and swiping back from
@@ -275,6 +331,7 @@ class ReaderScreen(
         startIndex = startIndex,
         repository = DocumentRepository(lightContext, lightContext.dataStore),
         database = lightContext.buildDatabase(LightmarkDatabase::class.java, LibraryScreen.DB_NAME),
+        settings = ReaderSettings(lightContext.dataStore),
     )
 
     @Composable
@@ -283,6 +340,7 @@ class ReaderScreen(
         val highlights by viewModel.highlights.collectAsState()
         val selection by viewModel.selection.collectAsState()
         val failed by viewModel.failed.collectAsState()
+        val pageNudge by viewModel.pageNudge.collectAsState()
         val themeColors by LightThemeController.colors.collectAsState()
 
         LightTheme(colors = themeColors) {
@@ -319,11 +377,13 @@ class ReaderScreen(
                     else -> {
                         val doc = state.document
                         val measurer = rememberTextMeasurer()
+                        val fontScale = rememberFontScale()
                         val blocks = rememberMeasuredBlocks(
                             document = doc,
                             contentWidthPx = contentWidth,
                             unitPx = unitPx,
                             typography = typography,
+                            fontScale = fontScale,
                             measurer = measurer,
                         )
                         val pages = remember(blocks, pageHeight) { paginate(blocks, pageHeight) }
@@ -362,6 +422,26 @@ class ReaderScreen(
                             readingOffset = startOffsetOf(target, blockStarts)
                         }
 
+                        // One path forward and one back, shared by the swipe and the
+                        // volume keys, so the two can never drift apart at a chapter
+                        // boundary.
+                        fun advance() {
+                            if (pageIndex < pages.lastIndex) goToPage(pageIndex + 1)
+                            else viewModel.nextChapter()
+                        }
+
+                        fun retreat() {
+                            if (pageIndex > 0) goToPage(pageIndex - 1)
+                            else viewModel.previousChapter()
+                        }
+
+                        LaunchedEffect(pageNudge, pages) {
+                            val nudge = pageNudge ?: return@LaunchedEffect
+                            if (pages.isEmpty()) return@LaunchedEffect
+                            if (nudge.delta > 0) advance() else retreat()
+                            viewModel.consumeNudge()
+                        }
+
                         val placed = remember(pages, pageIndex, blocks) {
                             pages.getOrNull(pageIndex)
                                 ?.let { layoutPage(it, blocks) }
@@ -393,14 +473,8 @@ class ReaderScreen(
                                 .readerGestures(
                                     key = Triple(state.token, pageIndex, pages.size),
                                     swipeThreshold = widthPx * SWIPE_FRACTION,
-                                    onPageForward = {
-                                        if (pageIndex < pages.lastIndex) goToPage(pageIndex + 1)
-                                        else viewModel.nextChapter()
-                                    },
-                                    onPageBack = {
-                                        if (pageIndex > 0) goToPage(pageIndex - 1)
-                                        else viewModel.previousChapter()
-                                    },
+                                    onPageForward = { advance() },
+                                    onPageBack = { retreat() },
                                     onSelectStart = { position ->
                                         val offset = offsetAt(position)
                                         val started = offset != null &&
@@ -428,6 +502,7 @@ class ReaderScreen(
                                     selection = selection,
                                     colors = colors,
                                     typography = typography,
+                                    fontScale = fontScale,
                                     unitPx = unitPx,
                                     density = density,
                                     onSliceLayout = { index, layout ->
