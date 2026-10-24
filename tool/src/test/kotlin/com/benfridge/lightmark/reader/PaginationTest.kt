@@ -172,8 +172,41 @@ class PaginationTest {
         val placed = layoutPage(paginate(blocks, 45f)[0], blocks)
         assertEquals(0, sliceIndexAt(placed, -50f))
         assertEquals(1, sliceIndexAt(placed, 9999f))
-        assertEquals(1, sliceIndexAt(placed, 22f)) // between the two slices
+        // Slice 0 ends at 20 and slice 1 starts at 25, so y=22 is nearer slice 0.
+        assertEquals(0, sliceIndexAt(placed, 22f))
+        assertEquals(1, sliceIndexAt(placed, 23f))
         assertEquals(-1, sliceIndexAt(emptyList(), 10f))
+    }
+
+    @Test
+    fun `a gap between early slices resolves to a neighbour, not the last slice`() {
+        // Six slices, each 20 tall with 5 of spacing. A press in the gap after the
+        // first must not land in the sixth: that is a highlight on the wrong paragraph.
+        val blocks = List(6) { block(2) }
+        val placed = layoutPage(paginate(blocks, 1000f)[0], blocks)
+        assertEquals(6, placed.size)
+        val gapAfterFirst = placed[0].bottom + 2f
+        val index = sliceIndexAt(placed, gapAfterFirst)
+        assertTrue(index <= 1, "gap after slice 0 resolved to slice $index")
+    }
+
+    @Test
+    fun `a gap resolves to whichever slice is nearer`() {
+        val blocks = List(4) { block(2) }
+        val placed = layoutPage(paginate(blocks, 1000f)[0], blocks)
+        val gapTop = placed[1].bottom
+        val gapBottom = placed[2].top
+        assertEquals(1, sliceIndexAt(placed, gapTop + 0.1f), "just below slice 1")
+        assertEquals(2, sliceIndexAt(placed, gapBottom - 0.1f), "just above slice 2")
+    }
+
+    @Test
+    fun `every slice is reachable by its own midpoint`() {
+        val blocks = List(5) { block(3) }
+        val placed = layoutPage(paginate(blocks, 1000f)[0], blocks)
+        placed.forEachIndexed { i, slice ->
+            assertEquals(i, sliceIndexAt(placed, slice.top + slice.height / 2f))
+        }
     }
 
     // ---- position round-tripping ----

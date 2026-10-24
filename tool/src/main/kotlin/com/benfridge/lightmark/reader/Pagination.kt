@@ -190,8 +190,13 @@ fun layoutPage(page: Page, blocks: List<MeasuredBlock>): List<PlacedSlice> {
 }
 
 /**
- * Index of the placed slice containing [y], clamped to the nearest when [y] falls in
- * the gap between two slices or outside the page. Returns -1 only for an empty page.
+ * Index of the placed slice containing [y], or the nearest one when [y] falls in the
+ * spacing between two slices or outside the page. Returns -1 only for an empty page.
+ *
+ * The nearest, not the last: the gaps here are the blank space between paragraphs, and
+ * a press there is a press on one of the two paragraphs either side of it. Falling back
+ * to the last slice put a highlight at the bottom of the page whenever someone pressed
+ * in the whitespace higher up.
  *
  * An index rather than the slice itself: two structurally equal slices would make
  * `indexOf` ambiguous, and the caller needs the index to find that slice's layout.
@@ -200,5 +205,19 @@ fun sliceIndexAt(placed: List<PlacedSlice>, y: Float): Int {
     if (placed.isEmpty()) return -1
     val exact = placed.indexOfFirst { y >= it.top && y < it.bottom }
     if (exact >= 0) return exact
-    return if (y < placed.first().top) 0 else placed.lastIndex
+
+    var nearest = 0
+    var shortest = Float.MAX_VALUE
+    placed.forEachIndexed { index, slice ->
+        val distance = when {
+            y < slice.top -> slice.top - y
+            y > slice.bottom -> y - slice.bottom
+            else -> 0f
+        }
+        if (distance < shortest) {
+            shortest = distance
+            nearest = index
+        }
+    }
+    return nearest
 }
