@@ -2,6 +2,9 @@ package com.benfridge.lightmark.ui
 
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.text.style.Hyphens
+import androidx.compose.ui.text.style.LineBreak
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.sp
 import com.benfridge.lightmark.markdown.Block
 import com.benfridge.lightmark.markdown.Span
@@ -92,6 +95,41 @@ class BlockStyleTest {
         val h1 = blockStyle(Block.Heading(1, listOf(Span("x"))), typography, 1f)
         val body = blockStyle(para(), typography, 1f)
         assertTrue(h1.fontSize.value > body.fontSize.value)
+    }
+
+    // ---- justification ----
+
+    @Test
+    fun `running text is justified and hyphenated`() {
+        listOf(
+            para(),
+            Block.Quote(listOf(Span("x"))),
+            Block.ListItem("\u2022", listOf(Span("x"))),
+        ).forEach { block ->
+            val style = blockStyle(block, typography, 1f)
+            assertEquals(TextAlign.Justify, style.textAlign, "$block alignment")
+            assertEquals(Hyphens.Auto, style.hyphens, "$block hyphens")
+            assertEquals(LineBreak.Paragraph, style.lineBreak, "$block line break")
+        }
+    }
+
+    @Test
+    fun `headings and code are not justified`() {
+        listOf(
+            Block.Heading(1, listOf(Span("x"))),
+            Block.Heading(3, listOf(Span("x"))),
+            Block.Code("x"),
+        ).forEach { block ->
+            val style = blockStyle(block, typography, 1f)
+            assertTrue(style.textAlign != TextAlign.Justify, "$block should stay ragged")
+            assertTrue(style.hyphens != Hyphens.Auto, "$block should not hyphenate")
+        }
+    }
+
+    @Test
+    fun `justification does not disturb the size or the scaling`() {
+        val scaled = blockStyle(para(), typography, fontScale = 0.787f)
+        assertEquals(25f * 0.787f, scaled.fontSize.value, 0.001f)
     }
 
     @Test

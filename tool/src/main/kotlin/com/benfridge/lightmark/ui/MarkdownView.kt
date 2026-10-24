@@ -22,6 +22,9 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.Hyphens
+import androidx.compose.ui.text.style.LineBreak
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Density
@@ -124,8 +127,33 @@ internal fun blockStyle(
         is Block.Code -> typography.detail.copy(fontFamily = FontFamily.Monospace)
         is Block.Rule -> typography.paragraphWide
     }
-    return base.scaled(fontScale)
+    return base.scaled(fontScale).let { if (block.isProse) it.justified() else it }
 }
+
+/** Running text. Headings, code and rules are set ragged-right as usual. */
+private val Block.isProse: Boolean
+    get() = this is Block.Paragraph || this is Block.Quote || this is Block.ListItem
+
+/**
+ * Justified, with automatic hyphenation.
+ *
+ * The column here is about thirty-five characters. At that measure ragged-right leaves
+ * a lot of the line unused, and justification without hyphenation opens rivers between
+ * the words instead. The two together are what make a narrow measure read well, which
+ * is why books have always set them that way.
+ *
+ * [LineBreak.Paragraph] picks line breaks by looking at the paragraph rather than one
+ * line at a time. It costs more to lay out, which is affordable now the measuring pass
+ * yields between blocks.
+ *
+ * Applied in blockStyle, so the measuring pass and the renderer break lines identically
+ * — they would disagree about where every line ends otherwise.
+ */
+private fun TextStyle.justified(): TextStyle = copy(
+    textAlign = TextAlign.Justify,
+    hyphens = Hyphens.Auto,
+    lineBreak = LineBreak.Paragraph,
+)
 
 /** Emphasis only. Highlights are layered on at render time and change no metrics. */
 internal fun blockAnnotated(block: Block): AnnotatedString = buildAnnotatedString {
