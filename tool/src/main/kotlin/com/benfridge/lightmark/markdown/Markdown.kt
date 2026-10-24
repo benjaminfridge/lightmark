@@ -83,6 +83,10 @@ object Markdown {
                     i++
                 }
 
+                // A line of nothing but hashes is an empty heading. It carries no text,
+                // so it is dropped rather than rendered as a paragraph saying "#".
+                isBareHashes(trimmed) -> i++
+
                 headingLevel(trimmed) > 0 -> {
                     val level = headingLevel(trimmed)
                     val content = trimmed.drop(level).trim().trimEnd('#').trim()
@@ -175,6 +179,9 @@ object Markdown {
         if (c != '-' && c != '*' && c != '_') return false
         return trimmed.all { it == c || it == ' ' } && trimmed.count { it == c } >= 3
     }
+
+    private fun isBareHashes(trimmed: String): Boolean =
+        trimmed.length in 1..6 && trimmed.all { it == '#' }
 
     private fun headingLevel(trimmed: String): Int {
         val hashes = trimmed.takeWhile { it == '#' }.length
