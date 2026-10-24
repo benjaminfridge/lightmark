@@ -237,9 +237,13 @@ internal fun PageContent(
                     .height(heightDp),
             ) {
                 val full = if (block is Block.Rule) AnnotatedString("") else blockAnnotated(block)
-                val hasText = block !is Block.Rule &&
-                    full.isNotEmpty() &&
-                    slice.charEnd > slice.charStart
+                // Clamped to the text actually in hand. Measurement and render build the
+                // same string from the same block, so these agree today, but an
+                // out-of-range subSequence throws, and a reader that crashes loses the
+                // reader's place as well as the page.
+                val from = slice.charStart.coerceIn(0, full.length)
+                val to = slice.charEnd.coerceIn(from, full.length)
+                val hasText = block !is Block.Rule && to > from
 
                 if (block is Block.Rule) {
                     Box(
@@ -262,9 +266,9 @@ internal fun PageContent(
                 if (hasText) Text(
                     text = styledSlice(
                         full = full,
-                        sliceDocumentStart = documentBlock.start + slice.charStart,
-                        charStart = slice.charStart,
-                        charEnd = slice.charEnd.coerceAtMost(full.length),
+                        sliceDocumentStart = documentBlock.start + from,
+                        charStart = from,
+                        charEnd = to,
                         highlights = highlights,
                         selection = selection,
                         colors = colors,

@@ -1,6 +1,7 @@
 package com.benfridge.lightmark.export
 
 import com.benfridge.lightmark.data.Highlight
+import com.benfridge.lightmark.data.NATURAL
 import com.benfridge.lightmark.data.titleFromDocumentId
 
 /**
@@ -21,11 +22,18 @@ data class ExportSection(
     val quotes: List<String>,
 )
 
-/** Groups rows by document, preserving reading order within each. */
+/**
+ * Groups rows by document, in reading order both between documents and within each.
+ *
+ * Sorted with the same natural comparator the library and the chapter list use, not
+ * lexicographically: plain string order puts chapter 10 before chapter 2, so an export
+ * of a book would come out shuffled against the order it was read in.
+ */
 fun sectionsFrom(highlights: List<Highlight>): List<ExportSection> =
     highlights
         .groupBy { it.documentId }
-        .toSortedMap()
+        .entries
+        .sortedWith(compareBy(NATURAL) { it.key })
         .map { (documentId, rows) ->
             ExportSection(
                 title = titleFromDocumentId(documentId),

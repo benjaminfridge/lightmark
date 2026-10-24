@@ -51,6 +51,21 @@ class HighlightExportTest {
     }
 
     @Test
+    fun `chapters export in reading order, not alphabetical order`() {
+        val sections = sectionsFrom(
+            listOf(
+                highlight(1, "shared:book/10-tenth.md", 0, "from ten"),
+                highlight(2, "shared:book/2-second.md", 0, "from two"),
+                highlight(3, "shared:book/1-first.md", 0, "from one"),
+            )
+        )
+        assertEquals(
+            listOf("1 first", "2 second", "10 tenth"),
+            sections.map { it.title },
+        )
+    }
+
+    @Test
     fun `no highlights means no sections`() {
         assertTrue(sectionsFrom(emptyList()).isEmpty())
     }
