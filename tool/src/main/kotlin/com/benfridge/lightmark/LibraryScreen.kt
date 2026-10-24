@@ -18,7 +18,10 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewModelScope
 import com.benfridge.lightmark.data.Book
 import com.benfridge.lightmark.data.DocumentRef
+import com.benfridge.lightmark.data.DataStoreReaderSettings
 import com.benfridge.lightmark.data.DocumentRepository
+import com.benfridge.lightmark.data.DocumentStore
+import com.benfridge.lightmark.data.HighlightDao
 import com.benfridge.lightmark.data.DocumentSource
 import com.benfridge.lightmark.data.LightmarkDatabase
 import com.benfridge.lightmark.data.ReaderSettings
@@ -65,8 +68,8 @@ sealed interface ExportState {
 }
 
 class LibraryViewModel(
-    private val repository: DocumentRepository,
-    private val database: LightmarkDatabase,
+    private val repository: DocumentStore,
+    private val highlightDao: HighlightDao,
     private val exporter: HighlightExporter,
     private val settings: ReaderSettings,
 ) : LightViewModel<Unit>() {
@@ -90,7 +93,7 @@ class LibraryViewModel(
             val library = repository.library()
             // One read grouped in memory, rather than a query per document: a book split
             // into chapters makes that list long.
-            val counts = database.highlights().listAll().groupingBy { it.documentId }.eachCount()
+            val counts = highlightDao.listAll().groupingBy { it.documentId }.eachCount()
 
             singles.value = library.singles.map { SingleRow(it, counts[it.id] ?: 0) }
             books.value = library.books.map { book ->
@@ -134,9 +137,9 @@ class LibraryScreen(sealedActivity: SealedLightActivity) :
         val database = lightContext.buildDatabase(LightmarkDatabase::class.java, DB_NAME)
         return LibraryViewModel(
             repository = DocumentRepository(lightContext, lightContext.dataStore),
-            database = database,
+            highlightDao = database.highlights(),
             exporter = HighlightExporter(lightContext.fileShare, database.highlights()),
-            settings = ReaderSettings(lightContext.dataStore),
+            settings = DataStoreReaderSettings(lightContext.dataStore),
         )
     }
 

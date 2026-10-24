@@ -14,7 +14,12 @@ import kotlinx.coroutines.flow.map
  * There is no settings screen and should not be one; what little exists lives as a row
  * on the library, which is already a list of rows.
  */
-class ReaderSettings(private val dataStore: DataStore<Preferences>) {
+interface ReaderSettings {
+    suspend fun volumeKeysTurnPages(): Boolean
+    suspend fun setVolumeKeysTurnPages(enabled: Boolean)
+}
+
+class DataStoreReaderSettings(private val dataStore: DataStore<Preferences>) : ReaderSettings {
 
     /**
      * Whether the volume keys turn pages.
@@ -25,10 +30,10 @@ class ReaderSettings(private val dataStore: DataStore<Preferences>) {
      * listening to. Hence a switch rather than a decision made for you. On by default,
      * because reading is what the tool is for.
      */
-    suspend fun volumeKeysTurnPages(): Boolean =
+    override suspend fun volumeKeysTurnPages(): Boolean =
         dataStore.data.map { it[VOLUME_KEYS] ?: true }.first()
 
-    suspend fun setVolumeKeysTurnPages(enabled: Boolean) {
+    override suspend fun setVolumeKeysTurnPages(enabled: Boolean) {
         dataStore.edit { it[VOLUME_KEYS] = enabled }
     }
 

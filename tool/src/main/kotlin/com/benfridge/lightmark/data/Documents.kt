@@ -92,6 +92,22 @@ data class Library(
 )
 
 /**
+ * What the screens need from storage.
+ *
+ * An interface so the reader's own logic — which chapter is current, what happens when
+ * two loads race — can be exercised without a filesystem or a DataStore behind it.
+ */
+interface DocumentStore {
+    fun library(): Library
+    suspend fun read(ref: DocumentRef): String?
+    suspend fun saveOffset(documentId: String, characterOffset: Int)
+    suspend fun offset(documentId: String): Int
+    suspend fun saveCurrentChapter(bookId: String, documentId: String)
+    suspend fun currentChapter(bookId: String): String?
+    fun ensureSharedDirectory()
+}
+
+/**
  * Documents come from two places: a few bundled in the APK, and whatever the user has
  * put in `files/shared/documents`.
  *
@@ -102,10 +118,10 @@ data class Library(
 class DocumentRepository(
     private val lightContext: SealedLightContext,
     private val dataStore: DataStore<Preferences>,
-) {
+) : DocumentStore {
     private val fileShare: LightFileShare get() = lightContext.fileShare
 
-    fun library(): Library {
+    override fun library(): Library {
         val shared = runCatching { fileShare.list(SHARED_DIR) }.getOrDefault(emptyList())
 
         val singles = (bundled() + shared.filter { it.isFile && it.name.isMarkdown() }.map { file ->
@@ -169,7 +185,7 @@ class DocumentRepository(
     }
 
     /** Returns null when the file has gone away since it was listed. */
-    fun read(ref: DocumentRef): String? = when (ref.source) {
+    override suspend fun read(ref: DocumentRef): String? = when (ref.source) {
         DocumentSource.Bundled -> runCatching { String(lightContext.readAsset(ref.path)) }.getOrNull()
         DocumentSource.Shared -> runCatching { fileShare.read(ref.path) { it.readText() } }.getOrNull()
     }
@@ -181,11 +197,11 @@ class DocumentRepository(
      * the type scale changes, and an activity recreation (light-sdk#225) is enough to
      * invalidate a pixel. A character offset resolves back to whichever page holds it.
      */
-    suspend fun saveOffset(documentId: String, characterOffset: Int) {
+    override suspend fun saveOffset(documentId: String, characterOffset: Int) {
         dataStore.edit { it[offsetKey(documentId)] = characterOffset }
     }
 
-    suspend fun offset(documentId: String): Int =
+    override suspend fun offset(documentId: String): Int =
         dataStore.data.map { it[offsetKey(documentId)] ?: 0 }.first()
 
     /**
@@ -195,15 +211,15 @@ class DocumentRepository(
      * book with none, so this is the one piece of state that makes a shelf of chapters
      * behave like something you were reading.
      */
-    suspend fun saveCurrentChapter(bookId: String, documentId: String) {
+    override suspend fun saveCurrentChapter(bookId: String, documentId: String) {
         dataStore.edit { it[chapterKey(bookId)] = documentId }
     }
 
-    suspend fun currentChapter(bookId: String): String? =
+    override suspend fun currentChapter(bookId: String): String? =
         dataStore.data.map { it[chapterKey(bookId)] }.first()
 
     /** Makes the shared directory exist, so the Tool Manager has somewhere to write. */
-    fun ensureSharedDirectory() {
+    override fun ensureSharedDirectory() {
         if (!fileShare.exists(SHARED_DIR)) {
             runCatching { fileShare.write("$SHARED_DIR/.keep") { it.write("") } }
         }

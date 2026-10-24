@@ -83,6 +83,8 @@ ksp {
 dependencies {
     implementation(project(":sdk:client"))
     testImplementation(libs.kotlin.test)
+    // Lets the view-model tests drive viewModelScope on a scheduler they control.
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
     ksp(libs.androidx.room.compiler)
 }
 

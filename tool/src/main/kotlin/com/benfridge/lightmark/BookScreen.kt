@@ -19,6 +19,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewModelScope
 import com.benfridge.lightmark.data.Book
 import com.benfridge.lightmark.data.DocumentRepository
+import com.benfridge.lightmark.data.DocumentStore
+import com.benfridge.lightmark.data.HighlightDao
 import com.benfridge.lightmark.data.LightmarkDatabase
 import com.thelightphone.sdk.LightScreen
 import com.thelightphone.sdk.LightViewModel
@@ -51,8 +53,8 @@ data class ChapterRow(
 
 class BookViewModel(
     private val book: Book,
-    private val repository: DocumentRepository,
-    private val database: LightmarkDatabase,
+    private val repository: DocumentStore,
+    private val highlightDao: HighlightDao,
 ) : LightViewModel<Unit>() {
 
     val rows = MutableStateFlow<List<ChapterRow>>(emptyList())
@@ -63,7 +65,7 @@ class BookViewModel(
         super.onScreenShow(screen)
         viewModelScope.launch(Dispatchers.IO) {
             val current = repository.currentChapter(book.id)
-            val counts = database.highlights().listAll().groupingBy { it.documentId }.eachCount()
+            val counts = highlightDao.listAll().groupingBy { it.documentId }.eachCount()
             val index = book.chapters.indexOfFirst { it.id == current }.coerceAtLeast(0)
             currentIndex.value = index
             rows.value = book.chapters.mapIndexed { i, ref ->
@@ -96,7 +98,9 @@ class BookScreen(
     override fun createViewModel(): BookViewModel = BookViewModel(
         book = book,
         repository = DocumentRepository(lightContext, lightContext.dataStore),
-        database = lightContext.buildDatabase(LightmarkDatabase::class.java, LibraryScreen.DB_NAME),
+        highlightDao = lightContext
+            .buildDatabase(LightmarkDatabase::class.java, LibraryScreen.DB_NAME)
+            .highlights(),
     )
 
     @Composable
