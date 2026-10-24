@@ -21,6 +21,7 @@ import androidx.lifecycle.viewModelScope
 import com.benfridge.lightmark.data.Book
 import com.benfridge.lightmark.data.DocumentRef
 import com.benfridge.lightmark.data.DataStoreReaderSettings
+import com.benfridge.lightmark.data.Databases
 import com.benfridge.lightmark.data.DocumentRepository
 import com.benfridge.lightmark.data.DocumentStore
 import com.benfridge.lightmark.data.HighlightDao
@@ -161,11 +162,11 @@ class LibraryScreen(sealedActivity: SealedLightActivity) :
     override val viewModelClass: Class<LibraryViewModel> get() = LibraryViewModel::class.java
 
     override fun createViewModel(): LibraryViewModel {
-        val database = lightContext.buildDatabase(LightmarkDatabase::class.java, DB_NAME)
+        val highlights = Databases.highlights(lightContext)
         return LibraryViewModel(
             repository = DocumentRepository(lightContext, lightContext.dataStore),
-            highlightDao = database.highlights(),
-            exporter = HighlightExporter(lightContext.fileShare, database.highlights()),
+            highlightDao = highlights,
+            exporter = HighlightExporter(lightContext.fileShare, highlights),
             settings = DataStoreReaderSettings(lightContext.dataStore),
         )
     }
@@ -239,9 +240,6 @@ class LibraryScreen(sealedActivity: SealedLightActivity) :
         navigateTo<Unit>({ activity -> ReaderScreen(activity, ref) })
     }
 
-    companion object {
-        const val DB_NAME = "lightmark.db"
-    }
 }
 
 @Composable

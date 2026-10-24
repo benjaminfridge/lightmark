@@ -27,6 +27,7 @@ import com.benfridge.lightmark.data.DocumentRef
 import com.benfridge.lightmark.data.DocumentRepository
 import com.benfridge.lightmark.data.DocumentStore
 import com.benfridge.lightmark.data.DataStoreReaderSettings
+import com.benfridge.lightmark.data.Databases
 import com.benfridge.lightmark.data.HighlightDao
 import com.benfridge.lightmark.data.Highlight
 import com.benfridge.lightmark.data.LightmarkDatabase
@@ -382,7 +383,7 @@ class ReaderScreen(
         chapters = chapters,
         startIndex = startIndex,
         repository = DocumentRepository(lightContext, lightContext.dataStore),
-        highlightDao = lightContext.buildDatabase(LightmarkDatabase::class.java, LibraryScreen.DB_NAME).highlights(),
+        highlightDao = Databases.highlights(lightContext),
         settings = DataStoreReaderSettings(lightContext.dataStore),
     )
 

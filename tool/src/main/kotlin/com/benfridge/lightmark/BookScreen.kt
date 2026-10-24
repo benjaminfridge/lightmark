@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewModelScope
 import com.benfridge.lightmark.data.Book
+import com.benfridge.lightmark.data.Databases
 import com.benfridge.lightmark.data.DocumentRepository
 import com.benfridge.lightmark.data.DocumentStore
 import com.benfridge.lightmark.data.HighlightDao
@@ -98,9 +99,7 @@ class BookScreen(
     override fun createViewModel(): BookViewModel = BookViewModel(
         book = book,
         repository = DocumentRepository(lightContext, lightContext.dataStore),
-        highlightDao = lightContext
-            .buildDatabase(LightmarkDatabase::class.java, LibraryScreen.DB_NAME)
-            .highlights(),
+        highlightDao = Databases.highlights(lightContext),
     )
 
     @Composable
