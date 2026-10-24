@@ -29,21 +29,6 @@ fun snapToWord(text: String, offset: Int): DocumentRange {
 
 private fun Char.isWordChar(): Boolean = isLetterOrDigit() || this == '\'' || this == '-'
 
-/** Merges overlapping or touching ranges, so highlights never stack. */
-fun List<DocumentRange>.merged(): List<DocumentRange> {
-    if (size < 2) return this
-    val sorted = sortedBy { it.start }
-    val out = mutableListOf(sorted.first())
-    sorted.drop(1).forEach { next ->
-        val last = out.last()
-        if (next.start <= last.end) {
-            out[out.lastIndex] = DocumentRange(last.start, maxOf(last.end, next.end))
-        } else {
-            out += next
-        }
-    }
-    return out
-}
 
 /**
  * The span a drag covers, whichever direction it went: from the word under the finger

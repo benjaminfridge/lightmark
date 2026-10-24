@@ -58,8 +58,6 @@ class HighlightExporter(
         }
     }
 
-    suspend fun highlightCount(): Int = runCatching { dao.totalCount() }.getOrDefault(0)
-
     companion object {
         /**
          * Doubles as the Tool Manager job key and the subdirectory name, which is the

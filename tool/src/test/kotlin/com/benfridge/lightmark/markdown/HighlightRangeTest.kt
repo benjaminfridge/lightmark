@@ -1,7 +1,6 @@
 package com.benfridge.lightmark.markdown
 
 import com.benfridge.lightmark.ui.DocumentRange
-import com.benfridge.lightmark.ui.merged
 import com.benfridge.lightmark.ui.snapToWord
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -45,23 +44,8 @@ class HighlightRangeTest {
         assertEquals(DocumentRange(0, 0), snapToWord("", 3))
     }
 
-    @Test
-    fun `overlapping ranges merge`() {
-        val merged = listOf(DocumentRange(0, 10), DocumentRange(5, 20)).merged()
-        assertEquals(listOf(DocumentRange(0, 20)), merged)
-    }
 
-    @Test
-    fun `touching ranges merge`() {
-        val merged = listOf(DocumentRange(0, 10), DocumentRange(10, 15)).merged()
-        assertEquals(listOf(DocumentRange(0, 15)), merged)
-    }
 
-    @Test
-    fun `disjoint ranges are left alone`() {
-        val input = listOf(DocumentRange(0, 5), DocumentRange(10, 15))
-        assertEquals(input, input.merged())
-    }
 
     @Test
     fun `contains is half open`() {

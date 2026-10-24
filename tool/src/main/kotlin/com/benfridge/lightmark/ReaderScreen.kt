@@ -118,7 +118,6 @@ class ReaderViewModel(
 
     val hasPrevious: Boolean get() = index > 0
     val hasNext: Boolean get() = index < chapters.lastIndex
-    val chapterCount: Int get() = chapters.size
 
     override fun onScreenShow(screen: SimpleLightScreen<Unit>) {
         super.onScreenShow(screen)

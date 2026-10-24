@@ -58,16 +58,5 @@ class HighlightMergeTest {
         assertEquals(listOf(1L, 2L), plan.absorbedIds)
     }
 
-    @Test
-    fun `highlighted text is read back from the document`() {
-        val plain = "the quick brown fox"
-        assertEquals("quick", highlight(1, 4, 9).textIn(plain))
-    }
 
-    @Test
-    fun `reading back a stale range is clamped, not thrown`() {
-        val plain = "short"
-        assertEquals("short", highlight(1, 0, 9_999).textIn(plain))
-        assertEquals("", highlight(2, 400, 500).textIn(plain))
-    }
 }

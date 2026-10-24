@@ -89,9 +89,7 @@ data class Book(
 data class Library(
     val singles: List<DocumentRef> = emptyList(),
     val books: List<Book> = emptyList(),
-) {
-    val isEmpty: Boolean get() = singles.isEmpty() && books.isEmpty()
-}
+)
 
 /**
  * Documents come from two places: a few bundled in the APK, and whatever the user has

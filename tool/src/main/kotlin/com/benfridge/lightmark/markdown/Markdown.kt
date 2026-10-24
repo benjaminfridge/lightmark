@@ -43,9 +43,6 @@ sealed interface Block {
 data class PlacedBlock(val block: Block, val start: Int) {
     val text: String = block.spans.joinToString("") { it.text }
     val end: Int get() = start + text.length
-
-    /** True when [range] overlaps this block at all. */
-    fun overlaps(from: Int, to: Int): Boolean = from < end && to > start
 }
 
 data class Document(val blocks: List<PlacedBlock>) {
