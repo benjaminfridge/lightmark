@@ -2,14 +2,24 @@
 
 A Markdown reader for the Light Phone III, with highlights.
 
-Reads `.md`, `.markdown` and `.txt`, set in pages. Swipe to turn a page. Press and hold
-then drag to highlight; press and hold a highlight to remove it. Nothing leaves the
-device and there is nothing to refresh.
+Reads `.md`, `.markdown` and `.txt`, set in pages. Swipe to turn a page, or use the
+volume keys. Press and hold then drag to highlight; press and hold a highlight to
+remove it. A folder of files is read as a book, and swiping carries across chapter
+boundaries. Four text sizes, down to about 14sp. Highlights export as Markdown.
+
+Nothing leaves the device, there is no network code, and there is nothing to refresh.
 
 ## Status
 
-Early. The reader, the parser and highlighting work. Receiving documents over WiFi is
-written but switched off — see [docs/HOLDBACK.md](docs/HOLDBACK.md).
+Early, and honest about it: **this has not yet been run on a Light Phone or an
+emulator.** 196 unit tests cover the parser, pagination, page stepping, selection,
+the merge planner and the export format, and the release APK builds clean — but no
+screen has been rendered and no gesture performed on a real runtime. Treat the design
+notes below as intent, verified by test rather than by use.
+
+Receiving documents over WiFi is written but switched off, because
+`tool-manager-provider` is not reachable on LightOS 582 — see
+[docs/HOLDBACK.md](docs/HOLDBACK.md).
 
 ## Building
 
