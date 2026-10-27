@@ -9,6 +9,14 @@ boundaries. Four text sizes, down to about 14sp. Highlights export as Markdown.
 
 Nothing leaves the device, there is no network code, and there is nothing to refresh.
 
+> **On the camera permission.** The built APK asks for `android.permission.CAMERA`.
+> Lightmark never opens a camera. The permission is declared in the SDK's `:sdk:ui`
+> manifest, which every tool depends on, and a tool has no way to drop it — the plugin
+> rejects tool manifests, and `ManifestGenerator` only ever adds permissions. Raised
+> upstream as [light-sdk#309](https://github.com/lightphone/light-sdk/issues/309). The
+> ML Kit and CameraX dependencies are excluded, so none of the scanning code ships.
+> [The long version.](#camera-cannot-currently-be-removed)
+
 ## Status
 
 Early, and precise about where it stands: **it runs on the LightOS emulator, and has
