@@ -6,3 +6,7 @@ local.properties
 .DS_Store
 .kotlin/
 samples/
+
+# Source material. Scanned books are copyrighted and enormous; the repo is public.
+*.pdf
+*.epub
