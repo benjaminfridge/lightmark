@@ -1,8 +1,9 @@
-# Draft issue for lightphone/light-sdk
+# Upstream issue: the blanket CAMERA permission
 
-Not filed. Light asks that communication in its repositories comes from a human, so
-read this over and post it yourself if you agree with it. Everything in it was checked
-against the v0.2.2 submodule in this repo.
+**Filed as [lightphone/light-sdk#309](https://github.com/lightphone/light-sdk/issues/309)** on 26 October 2026, posted by Ben.
+Kept here as the record of what was claimed and why, all of it checked against the
+v0.2.2 submodule in this repo. `upstream-camera-permission-body.md` is the text as
+submitted.
 
 ---
 

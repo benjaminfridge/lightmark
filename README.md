@@ -228,7 +228,8 @@ The fix belongs upstream: move the scanner's permission out of the blanket UI ma
 the way foreground-service permissions are already handled, through
 `CAPABILITY_IMPLIED_PERMISSIONS` rather than a declaration every tool inherits. Until
 then a reader ships asking for camera access, and that needs disclosing at submission.
-A drafted issue is in [docs/upstream-camera-permission.md](docs/upstream-camera-permission.md).
+Filed upstream as [lightphone/light-sdk#309](https://github.com/lightphone/light-sdk/issues/309); the reasoning is kept in
+[docs/upstream-camera-permission.md](docs/upstream-camera-permission.md).
 
 ## APK size
 
@@ -384,5 +385,6 @@ raw HTML and footnotes are out.
 
 ## Licence
 
-Not yet chosen. The Tool Library requires tools to be open source, so this needs one
-before submission.
+MIT — see [LICENSE](LICENSE). The same licence as `light-sdk` itself, and as the other
+reader in the Tool Library queue, which keeps things unambiguous when Light archives the
+source and redistributes a signed APK.
