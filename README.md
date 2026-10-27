@@ -9,6 +9,12 @@ boundaries. Four text sizes, down to about 14sp. Highlights export as Markdown.
 
 Nothing leaves the device, there is no network code, and there is nothing to refresh.
 
+| Library | Reading | A highlight |
+|---|---|---|
+| ![The library, listing a book, a note and the bundled document](docs/screenshots/library.png) | ![A page of text with the progress hairline](docs/screenshots/reader.png) | ![A highlighted passage, drawn as inverted text](docs/screenshots/highlight.png) |
+
+Taken on the LightOS emulator at the Light Phone III's 1080×1240.
+
 > **On the camera permission.** The built APK asks for `android.permission.CAMERA`.
 > Lightmark never opens a camera. The permission is declared in the SDK's `:sdk:ui`
 > manifest, which every tool depends on, and a tool has no way to drop it — the plugin
