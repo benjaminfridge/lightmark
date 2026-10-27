@@ -80,9 +80,33 @@ class NaturalOrderTest {
     @Test
     fun `a chapter title comes from its file name, not its folder`() {
         assertEquals(
-            "02 the wild places",
+            "The wild places",
             titleFromDocumentId("shared:ways-of-being/02-the-wild-places.md"),
         )
+    }
+
+    @Test
+    fun `a chapter drops the number that orders it on disk`() {
+        assertEquals("The swarm", chapterTitleFromFileName("02-the-swarm.md"))
+        assertEquals("The swarm", chapterTitleFromFileName("2. the swarm.md"))
+        assertEquals("The swarm", chapterTitleFromFileName("2) the swarm.md"))
+        assertEquals("The swarm", chapterTitleFromFileName("002_the_swarm.md"))
+    }
+
+    @Test
+    fun `a number that is the title survives`() {
+        assertEquals("1984", chapterTitleFromFileName("1984.md"))
+        assertEquals("12", chapterTitleFromFileName("12.md"))
+    }
+
+    @Test
+    fun `a loose document keeps its leading number`() {
+        assertEquals(
+            "100 years of solitude",
+            titleFromDocumentId("shared:100-years-of-solitude.md"),
+            "at the top level a number is as likely to be the title as an ordering",
+        )
+        assertEquals("02 the wild places", titleFromFileName("02-the-wild-places.md"))
     }
 
     @Test

@@ -13,22 +13,46 @@ import kotlinx.coroutines.flow.map
 /** Where a document's text came from. */
 enum class DocumentSource { Bundled, Shared }
 
-/** "my-trip-notes.md" -> "My trip notes" */
-internal fun titleFromFileName(fileName: String): String = fileName
+private fun wordsFromFileName(fileName: String): String = fileName
     .substringBeforeLast('.')
     .replace('-', ' ')
     .replace('_', ' ')
     .trim()
-    .replaceFirstChar { it.uppercase() }
+
+/** A number that orders a chapter file on disk: "02 ", "2. ", "2) ". */
+private val CHAPTER_NUMBER = Regex("""^\d+[.)]?\s+(?=\S)""")
+
+/** "my-trip-notes.md" -> "My trip notes" */
+internal fun titleFromFileName(fileName: String): String =
+    wordsFromFileName(fileName).replaceFirstChar { it.uppercase() }
 
 /**
- * "shared:ways-of-being/02-the-wild-places.md" -> "02 the wild places".
+ * "02-the-wild-places.md" -> "The wild places".
+ *
+ * The leading number is there to order the file on disk, and the chapter list is already
+ * in that order, so printing it again reads like a filename rather than a chapter.
+ *
+ * Only chapters get this. A standalone document keeps whatever it is called, because at
+ * the top level a leading number is as likely to be the title as an ordering: nothing
+ * should turn "100-years-of-solitude.md" into "Years of solitude".
+ */
+internal fun chapterTitleFromFileName(fileName: String): String =
+    wordsFromFileName(fileName)
+        .replaceFirst(CHAPTER_NUMBER, "")
+        .replaceFirstChar { it.uppercase() }
+
+/**
+ * "shared:ways-of-being/02-the-wild-places.md" -> "The wild places".
  *
  * Derived from the id rather than looked up, so an export still names a document whose
- * file has since been renamed or removed.
+ * file has since been renamed or removed. A folder in the id means the document is a
+ * chapter of a book, which is the same thing [chapterTitleFromFileName] keys off.
  */
-internal fun titleFromDocumentId(documentId: String): String =
-    titleFromFileName(documentId.substringAfter(':', documentId).substringAfterLast('/'))
+internal fun titleFromDocumentId(documentId: String): String {
+    val path = documentId.substringAfter(':', documentId)
+    val fileName = path.substringAfterLast('/')
+    return if ('/' in path) chapterTitleFromFileName(fileName) else titleFromFileName(fileName)
+}
 
 /**
  * Orders "2" before "10", which plain string order gets wrong.
@@ -160,7 +184,7 @@ class DocumentRepository(
             chapters = files.map { file ->
                 DocumentRef(
                     id = "shared:$folder/${file.name}",
-                    title = titleFromFileName(file.name),
+                    title = chapterTitleFromFileName(file.name),
                     source = DocumentSource.Shared,
                     path = "$SHARED_DIR/$folder/${file.name}",
                     bookId = bookId,
