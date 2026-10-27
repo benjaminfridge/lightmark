@@ -11,11 +11,23 @@ Nothing leaves the device, there is no network code, and there is nothing to ref
 
 ## Status
 
-Early, and honest about it: **this has not yet been run on a Light Phone or an
-emulator.** 196 unit tests cover the parser, pagination, page stepping, selection,
-the merge planner and the export format, and the release APK builds clean — but no
-screen has been rendered and no gesture performed on a real runtime. Treat the design
-notes below as intent, verified by test rather than by use.
+Early, and precise about where it stands: **it runs on the LightOS emulator, and has
+never been on a Light Phone.** 200 unit tests cover the parser, pagination, page
+stepping, selection, the merge planner and the export format, and the release APK
+builds clean.
+
+On the emulator — AOSP 34, arm64, the Light Phone III's 1080×1240 panel at 420dpi —
+the library, chapter list, reader, highlighting and export have all been used by hand:
+pages turned by swipe and by volume key, text highlighted by press-and-drag, all four
+text sizes, justification on and off, highlights exported to Markdown. No crash, no
+ANR, no threading violation. Two things that could only be settled by running it were:
+the Android hyphenator does break words when text is justified, and a highlight
+anchored by character offset survives a change of text size, because it is laid out
+fresh each time rather than stored as a position on a page.
+
+What the emulator cannot tell you is how any of this feels on e-ink at arm's length.
+Treat the design notes below as intent, verified by test and by use on a screen that
+is the right shape and the wrong technology.
 
 Receiving documents over WiFi is written but switched off, because
 `tool-manager-provider` is not reachable on LightOS 582 — see
