@@ -31,6 +31,15 @@ class HighlightExportTest {
     }
 
     @Test
+    fun `a chapter heading drops the number that orders the file`() {
+        assertEquals(
+            "The wild places",
+            titleFromDocumentId("shared:ways-of-being/02-the-wild-places.md"),
+            "the export headings should read the way the book does",
+        )
+    }
+
+    @Test
     fun `an id without a source prefix still yields a title`() {
         assertEquals("Notes", titleFromDocumentId("notes.md"))
     }
@@ -60,8 +69,9 @@ class HighlightExportTest {
             )
         )
         assertEquals(
-            listOf("1 first", "2 second", "10 tenth"),
+            listOf("First", "Second", "Tenth"),
             sections.map { it.title },
+            "sorting the ids as strings would give First, Tenth, Second",
         )
     }
 
@@ -82,6 +92,19 @@ class HighlightExportTest {
         assertTrue(
             markdown.contains("1 highlight across 1 document. Exported 23 October 2026."),
             markdown,
+        )
+        assertEquals(
+            """
+            # Highlights
+
+            1 highlight across 1 document. Exported 23 October 2026.
+
+            ## A
+
+            > one
+            """.trimIndent() + "\n",
+            markdown,
+            "one blank line between every part, as a hand-written note would have",
         )
     }
 

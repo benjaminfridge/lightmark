@@ -55,7 +55,6 @@ fun formatHighlightsMarkdown(
 
     builder.append("# Highlights\n\n")
     builder.append(summaryLine(quoteCount, sections.size, exportedAt))
-    builder.append("\n")
 
     sections.forEach { section ->
         builder.append("\n## ").append(section.title).append("\n\n")
