@@ -1,0 +1,2 @@
+# Debug builds bundle no documents, so a personal install shows only your own books.
+# Release builds keep the guide listed in src/main/assets/documents/index.txt.
