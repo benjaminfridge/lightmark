@@ -35,7 +35,7 @@ Then verify on a real phone, not just the emulator — that is the whole point o
 holdback. The tool should appear by name in the device's Tool Manager with a
 **Documents** folder that accepts uploads.
 
-**Until then** documents arrive by `adb push`, as described in the README, and the
+**Until then** documents arrive over `adb`, as described in the README, and the
 bundled document in `assets/documents/` means the tool is not empty on first run.
 
 ## Highlight export as a Tool Manager download
