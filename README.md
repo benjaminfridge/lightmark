@@ -285,10 +285,10 @@ public-suffix list.
 
 ## Design notes
 
-**The reader has two gestures and no chrome.** Swipe turns the page; press and hold then
-drag highlights. A plain tap does nothing, deliberately. Leaving is the hardware back
-key, which the SDK already routes through `goBack()` — so there is no top bar spending
-two of the screen's thirty-one vertical grid units on every page.
+**The reader has two gestures and one button.** Swipe turns the page; press and hold then
+drag highlights. A plain tap on the page does nothing, deliberately. Leaving is the back
+arrow in the top bar: LightOS has no system back key on the phone, which the emulator's
+navigation bar hid until this ran on real hardware.
 
 **Volume keys turn pages**, down for next and up for back. `LightActivity` offers every
 key except BACK and HOME to the foreground screen before acting on it, so consuming them

@@ -4,6 +4,7 @@ import android.view.KeyEvent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -58,12 +59,15 @@ import com.thelightphone.sdk.LightViewModel
 import com.thelightphone.sdk.SealedLightActivity
 import com.thelightphone.sdk.SimpleLightScreen
 import com.thelightphone.sdk.buildDatabase
+import com.thelightphone.sdk.ui.LightBarButton
 import com.thelightphone.sdk.ui.LightGrid
+import com.thelightphone.sdk.ui.LightIcons
 import com.thelightphone.sdk.ui.LightText
 import com.thelightphone.sdk.ui.LightTextVariant
 import com.thelightphone.sdk.ui.LightTheme
 import com.thelightphone.sdk.ui.LightThemeController
 import com.thelightphone.sdk.ui.LightThemeTokens
+import com.thelightphone.sdk.ui.LightTopBar
 import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -357,10 +361,9 @@ class ReaderViewModel(
 }
 
 /**
- * The reader. Two gestures and no chrome: swipe to turn the page, press and hold then
- * drag to highlight. Leaving is the hardware back key, which the SDK already routes
- * through [goBack], so there is no top bar taking two of the screen's thirty-one
- * vertical grid units on every page.
+ * The reader. Two gestures and one button: swipe to turn the page, press and hold then
+ * drag to highlight, and the top bar's back arrow to leave. LightOS has no system back
+ * key on the phone, so without the arrow there is no way out of a document.
  *
  * A book is a list of chapter files, and swiping carries across the boundary between
  * them, so a split book reads as one thing. A loose document is simply a list of one.
@@ -402,195 +405,203 @@ class ReaderScreen(
             val colors = LightThemeTokens.colors
             val typography = LightThemeTokens.typography
 
-            BoxWithConstraints(
+            Column(
                 modifier = Modifier.fillMaxSize().background(colors.background),
             ) {
-                val density = LocalDensity.current
-                val widthPx = with(density) { maxWidth.toPx() }
-                val heightPx = with(density) { maxHeight.toPx() }
-                val unitPx = widthPx / LightGrid.WIDTH
-                val sideMargin = ReaderMetrics.SIDE_MARGIN_UNITS * unitPx
-                val topMargin = ReaderMetrics.TOP_MARGIN_UNITS * unitPx
-                val bottomMargin = ReaderMetrics.BOTTOM_MARGIN_UNITS * unitPx
-                val hairline = with(density) { 1.dp.toPx() }
-                val contentWidth = (widthPx - sideMargin * 2f).toInt()
-                val pageHeight = heightPx - topMargin - bottomMargin - hairline
+                LightTopBar(
+                    leftButton = LightBarButton.LightIcon(LightIcons.BACK, onClick = { goBack() }),
+                )
 
-                val state = loaded
-                when {
-                    failed -> LightText(
-                        text = "That document could not be read.",
-                        variant = LightTextVariant.Copy,
-                        modifier = Modifier.padding(
-                            horizontal = with(density) { sideMargin.toDp() },
-                            vertical = with(density) { topMargin.toDp() },
-                        ),
-                    )
+                BoxWithConstraints(
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                ) {
+                    val density = LocalDensity.current
+                    val widthPx = with(density) { maxWidth.toPx() }
+                    val heightPx = with(density) { maxHeight.toPx() }
+                    val unitPx = widthPx / LightGrid.WIDTH
+                    val sideMargin = ReaderMetrics.SIDE_MARGIN_UNITS * unitPx
+                    val topMargin = ReaderMetrics.TOP_MARGIN_UNITS * unitPx
+                    val bottomMargin = ReaderMetrics.BOTTOM_MARGIN_UNITS * unitPx
+                    val hairline = with(density) { 1.dp.toPx() }
+                    val contentWidth = (widthPx - sideMargin * 2f).toInt()
+                    val pageHeight = heightPx - topMargin - bottomMargin - hairline
 
-                    state == null -> Unit
+                    val state = loaded
+                    when {
+                        failed -> LightText(
+                            text = "That document could not be read.",
+                            variant = LightTextVariant.Copy,
+                            modifier = Modifier.padding(
+                                horizontal = with(density) { sideMargin.toDp() },
+                                vertical = with(density) { topMargin.toDp() },
+                            ),
+                        )
 
-                    else -> {
-                        val doc = state.document
-                        val measurer = rememberTextMeasurer()
-                        // The LightOS scale times what the reader chose. Changing it
-                        // re-measures and re-paginates; the reading position is a
-                        // character offset and is not keyed on it, so the page is
-                        // re-derived around the same word.
-                        val fontScale = rememberFontScale() * textScale
-                        // Null until the measuring pass finishes. An empty list
-                        // paginates to no pages, which is already the "nothing to draw
-                        // yet" state every branch below handles.
-                        val blocks = rememberMeasuredBlocks(
-                            document = doc,
-                            contentWidthPx = contentWidth,
-                            unitPx = unitPx,
-                            typography = typography,
-                            fontScale = fontScale,
-                            justify = justifyText,
-                            measurer = measurer,
-                        ) ?: emptyList()
-                        val pages = remember(blocks, pageHeight) { paginate(blocks, pageHeight) }
-                        val blockStarts = remember(state.token) { doc.blocks.map { it.start } }
+                        state == null -> Unit
 
-                        // Position is held as a character offset and the page derived
-                        // from it, not the other way round. A theme switch or an
-                        // activity recreation re-measures and re-paginates; deriving
-                        // the page means that keeps your place instead of resetting.
-                        var readingOffset by remember(state.token) { mutableIntStateOf(-1) }
+                        else -> {
+                            val doc = state.document
+                            val measurer = rememberTextMeasurer()
+                            // The LightOS scale times what the reader chose. Changing it
+                            // re-measures and re-paginates; the reading position is a
+                            // character offset and is not keyed on it, so the page is
+                            // re-derived around the same word.
+                            val fontScale = rememberFontScale() * textScale
+                            // Null until the measuring pass finishes. An empty list
+                            // paginates to no pages, which is already the "nothing to draw
+                            // yet" state every branch below handles.
+                            val blocks = rememberMeasuredBlocks(
+                                document = doc,
+                                contentWidthPx = contentWidth,
+                                unitPx = unitPx,
+                                typography = typography,
+                                fontScale = fontScale,
+                                justify = justifyText,
+                                measurer = measurer,
+                            ) ?: emptyList()
+                            val pages = remember(blocks, pageHeight) { paginate(blocks, pageHeight) }
+                            val blockStarts = remember(state.token) { doc.blocks.map { it.start } }
 
-                        LaunchedEffect(state.token, pages) {
-                            if (readingOffset < 0 && pages.isNotEmpty()) {
-                                readingOffset = when (state.entry) {
-                                    ChapterEntry.Restore -> state.savedOffset
-                                    ChapterEntry.Start -> 0
-                                    // Arrived by swiping backwards: open at the end.
-                                    ChapterEntry.End -> startOffsetOf(pages.last(), blockStarts)
+                            // Position is held as a character offset and the page derived
+                            // from it, not the other way round. A theme switch or an
+                            // activity recreation re-measures and re-paginates; deriving
+                            // the page means that keeps your place instead of resetting.
+                            var readingOffset by remember(state.token) { mutableIntStateOf(-1) }
+
+                            LaunchedEffect(state.token, pages) {
+                                if (readingOffset < 0 && pages.isNotEmpty()) {
+                                    readingOffset = when (state.entry) {
+                                        ChapterEntry.Restore -> state.savedOffset
+                                        ChapterEntry.Start -> 0
+                                        // Arrived by swiping backwards: open at the end.
+                                        ChapterEntry.End -> startOffsetOf(pages.last(), blockStarts)
+                                    }
                                 }
                             }
-                        }
 
-                        val pageIndex = remember(pages, readingOffset, blockStarts) {
-                            if (pages.isEmpty() || readingOffset < 0) 0
-                            else pageContaining(pages, blockStarts, readingOffset)
-                        }
-
-                        LaunchedEffect(pageIndex, pages) {
-                            pages.getOrNull(pageIndex)?.let {
-                                viewModel.notePageOffset(startOffsetOf(it, blockStarts))
+                            val pageIndex = remember(pages, readingOffset, blockStarts) {
+                                if (pages.isEmpty() || readingOffset < 0) 0
+                                else pageContaining(pages, blockStarts, readingOffset)
                             }
-                        }
 
-                        fun goToPage(index: Int) {
-                            val target = pages.getOrNull(index) ?: return
-                            readingOffset = startOffsetOf(target, blockStarts)
-                        }
-
-                        // The swipe and the volume keys both come through here, so the
-                        // two cannot drift apart at a chapter boundary. The decision
-                        // itself is in stepForward/stepBackward, where it is testable.
-                        fun apply(step: PageStep) {
-                            when (step) {
-                                is PageStep.ToPage -> goToPage(step.index)
-                                PageStep.NextChapter -> viewModel.nextChapter()
-                                PageStep.PreviousChapter -> viewModel.previousChapter()
-                                PageStep.Nowhere -> Unit
+                            LaunchedEffect(pageIndex, pages) {
+                                pages.getOrNull(pageIndex)?.let {
+                                    viewModel.notePageOffset(startOffsetOf(it, blockStarts))
+                                }
                             }
-                        }
 
-                        fun advance() =
-                            apply(stepForward(pageIndex, pages.size, viewModel.hasNext))
+                            fun goToPage(index: Int) {
+                                val target = pages.getOrNull(index) ?: return
+                                readingOffset = startOffsetOf(target, blockStarts)
+                            }
 
-                        fun retreat() =
-                            apply(stepBackward(pageIndex, pages.size, viewModel.hasPrevious))
+                            // The swipe and the volume keys both come through here, so the
+                            // two cannot drift apart at a chapter boundary. The decision
+                            // itself is in stepForward/stepBackward, where it is testable.
+                            fun apply(step: PageStep) {
+                                when (step) {
+                                    is PageStep.ToPage -> goToPage(step.index)
+                                    PageStep.NextChapter -> viewModel.nextChapter()
+                                    PageStep.PreviousChapter -> viewModel.previousChapter()
+                                    PageStep.Nowhere -> Unit
+                                }
+                            }
 
-                        LaunchedEffect(pageNudge, pages) {
-                            val nudge = pageNudge ?: return@LaunchedEffect
-                            if (pages.isEmpty()) return@LaunchedEffect
-                            if (nudge.delta > 0) advance() else retreat()
-                            viewModel.consumeNudge()
-                        }
+                            fun advance() =
+                                apply(stepForward(pageIndex, pages.size, viewModel.hasNext))
 
-                        val placed = remember(pages, pageIndex, blocks) {
-                            pages.getOrNull(pageIndex)
-                                ?.let { layoutPage(it, blocks) }
-                                ?: emptyList()
-                        }
-                        val layouts = remember(pageIndex, pages, state.token) {
-                            mutableMapOf<Int, TextLayoutResult>()
-                        }
+                            fun retreat() =
+                                apply(stepBackward(pageIndex, pages.size, viewModel.hasPrevious))
 
-                        // Screen coordinates -> document character offset.
-                        fun offsetAt(position: Offset): Int? {
-                            val index = sliceIndexAt(placed, position.y - topMargin)
-                            if (index < 0) return null
-                            val hit = placed[index]
-                            val layout = layouts[index] ?: return null
-                            val block = doc.blocks[hit.slice.blockIndex]
-                            val inset = blockInsetUnits(block.block) * unitPx
-                            val local = Offset(
-                                position.x - sideMargin - inset,
-                                position.y - topMargin - hit.top,
-                            )
-                            return block.start + hit.slice.charStart +
-                                layout.getOffsetForPosition(local)
-                        }
+                            LaunchedEffect(pageNudge, pages) {
+                                val nudge = pageNudge ?: return@LaunchedEffect
+                                if (pages.isEmpty()) return@LaunchedEffect
+                                if (nudge.delta > 0) advance() else retreat()
+                                viewModel.consumeNudge()
+                            }
 
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .readerGestures(
-                                    key = Triple(state.token, pageIndex, pages.size),
-                                    swipeThreshold = widthPx * SWIPE_FRACTION,
-                                    onPageForward = { advance() },
-                                    onPageBack = { retreat() },
-                                    onSelectStart = { position ->
-                                        val offset = offsetAt(position)
-                                        val started = offset != null &&
-                                            viewModel.beginSelection(offset)
-                                        // Confirms the mode changed. Without it a hold
-                                        // that began a selection feels identical to one
-                                        // that found no text.
-                                        sealedActivity.vibrator.click()
-                                        started
-                                    },
-                                    onSelectExtend = { position ->
-                                        offsetAt(position)?.let(viewModel::extendSelection)
-                                    },
-                                    onSelectCommit = viewModel::commitSelection,
-                                    onSelectCancel = viewModel::cancelSelection,
-                                ),
-                        ) {
-                            if (placed.isNotEmpty()) {
-                                PageContent(
-                                    document = doc,
-                                    placed = placed,
-                                    highlights = highlights.map {
-                                        DocumentRange(it.start, it.end)
-                                    },
-                                    selection = selection,
-                                    colors = colors,
-                                    typography = typography,
-                                    fontScale = fontScale,
-                                    justify = justifyText,
-                                    unitPx = unitPx,
-                                    density = density,
-                                    onSliceLayout = { index, layout ->
-                                        layouts[index] = layout
-                                    },
-                                    modifier = Modifier.padding(
-                                        start = with(density) { sideMargin.toDp() },
-                                        end = with(density) { sideMargin.toDp() },
-                                        top = with(density) { topMargin.toDp() },
+                            val placed = remember(pages, pageIndex, blocks) {
+                                pages.getOrNull(pageIndex)
+                                    ?.let { layoutPage(it, blocks) }
+                                    ?: emptyList()
+                            }
+                            val layouts = remember(pageIndex, pages, state.token) {
+                                mutableMapOf<Int, TextLayoutResult>()
+                            }
+
+                            // Screen coordinates -> document character offset.
+                            fun offsetAt(position: Offset): Int? {
+                                val index = sliceIndexAt(placed, position.y - topMargin)
+                                if (index < 0) return null
+                                val hit = placed[index]
+                                val layout = layouts[index] ?: return null
+                                val block = doc.blocks[hit.slice.blockIndex]
+                                val inset = blockInsetUnits(block.block) * unitPx
+                                val local = Offset(
+                                    position.x - sideMargin - inset,
+                                    position.y - topMargin - hit.top,
+                                )
+                                return block.start + hit.slice.charStart +
+                                    layout.getOffsetForPosition(local)
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .readerGestures(
+                                        key = Triple(state.token, pageIndex, pages.size),
+                                        swipeThreshold = widthPx * SWIPE_FRACTION,
+                                        onPageForward = { advance() },
+                                        onPageBack = { retreat() },
+                                        onSelectStart = { position ->
+                                            val offset = offsetAt(position)
+                                            val started = offset != null &&
+                                                viewModel.beginSelection(offset)
+                                            // Confirms the mode changed. Without it a hold
+                                            // that began a selection feels identical to one
+                                            // that found no text.
+                                            sealedActivity.vibrator.click()
+                                            started
+                                        },
+                                        onSelectExtend = { position ->
+                                            offsetAt(position)?.let(viewModel::extendSelection)
+                                        },
+                                        onSelectCommit = viewModel::commitSelection,
+                                        onSelectCancel = viewModel::cancelSelection,
                                     ),
+                            ) {
+                                if (placed.isNotEmpty()) {
+                                    PageContent(
+                                        document = doc,
+                                        placed = placed,
+                                        highlights = highlights.map {
+                                            DocumentRange(it.start, it.end)
+                                        },
+                                        selection = selection,
+                                        colors = colors,
+                                        typography = typography,
+                                        fontScale = fontScale,
+                                        justify = justifyText,
+                                        unitPx = unitPx,
+                                        density = density,
+                                        onSliceLayout = { index, layout ->
+                                            layouts[index] = layout
+                                        },
+                                        modifier = Modifier.padding(
+                                            start = with(density) { sideMargin.toDp() },
+                                            end = with(density) { sideMargin.toDp() },
+                                            top = with(density) { topMargin.toDp() },
+                                        ),
+                                    )
+                                }
+                            }
+
+                            if (pages.size > 1) {
+                                ProgressHairline(
+                                    fraction = (pageIndex + 1f) / pages.size,
+                                    modifier = Modifier.align(Alignment.BottomStart),
                                 )
                             }
-                        }
-
-                        if (pages.size > 1) {
-                            ProgressHairline(
-                                fraction = (pageIndex + 1f) / pages.size,
-                                modifier = Modifier.align(Alignment.BottomStart),
-                            )
                         }
                     }
                 }
