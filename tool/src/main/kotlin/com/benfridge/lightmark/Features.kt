@@ -16,8 +16,8 @@ object Features {
      * manifest code it guards is already written.
      *
      * Until then, documents arrive by:
-     *   adb push my-notes.md /sdcard/ && adb shell run-as com.benfridge.lightmark \
-     *     cp /sdcard/my-notes.md files/shared/documents/
+     *   adb exec-in run-as com.benfridge.lightmark sh -c \
+     *     'cat > files/shared/documents/my-notes.md' < my-notes.md
      */
     const val TOOL_MANAGER_UPLOAD = false
 }

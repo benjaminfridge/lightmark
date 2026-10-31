@@ -25,8 +25,9 @@ Taken on the LightOS emulator at the Light Phone III's 1080×1240.
 
 ## Status
 
-Early, and precise about where it stands: **it runs on the LightOS emulator, and has
-never been on a Light Phone.** 200 unit tests cover the parser, pagination, page
+Early, and precise about where it stands: **it was built on the LightOS emulator and has
+run on a Light Phone III (LightOS 582) since 30 October 2026, as a sideloaded debug
+build.** 200 unit tests cover the parser, pagination, page
 stepping, selection, the merge planner and the export format, and the release APK
 builds clean.
 
@@ -100,7 +101,8 @@ roots are found in the JDK path", which is a confusing way to learn this.
 
 ## Running it
 
-**On a phone, over USB.** Enable Developer Mode on the
+**On a phone, over USB.** USB debugging is off by default, and its switch is in Android's
+own developer options rather than anywhere in LightOS. Enable Developer Mode on the
 [dashboard](https://dashboard.thelightphone.com) under Settings → Account, then:
 
 ```bash
@@ -132,8 +134,8 @@ Bundled documents live in `tool/src/main/assets/documents/`, listed one per line
 `index.txt`. Your own documents go in the tool's shared directory:
 
 ```bash
-adb push notes.md /sdcard/
-adb shell run-as com.benfridge.lightmark cp /sdcard/notes.md files/shared/documents/
+adb exec-in run-as com.benfridge.lightmark sh -c \
+  'cat > files/shared/documents/notes.md' < notes.md
 ```
 
 ### Books are folders
@@ -229,8 +231,14 @@ export code. There is no forward-to-email path and cannot be one yet —
 
 ## Permissions
 
-Lightmark declares none of its own — `permissions = []` in `lighttool.toml` — and its
-code makes no network calls; nothing under `tool/src/main` references an HTTP client.
+Lightmark declares none of its own — `permissions = []` in `lighttool.toml` — and release
+builds make no network calls; nothing under `tool/src/main` or `tool/src/release`
+references an HTTP client.
+
+Debug builds are different, and only they: `tool/src/debug` pushes highlights to the
+author's own private GitHub repo using a token placed on the phone by hand. Without a
+token it does nothing. The build Light signs is `assembleRelease`, which does not compile
+that source set.
 
 The built APK nevertheless lists these, and a reviewer will see them:
 

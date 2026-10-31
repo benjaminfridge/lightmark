@@ -97,6 +97,18 @@ internet connectivity), and it breaks when someone else changes an API. The file
 is the local-first answer, and the Tool Manager download is Light's own sanctioned way of
 getting a file off the phone.
 
+### Personal builds, and what replaces them
+
+`tool/src/debug` does exactly that POST, to a private repo the author owns, so highlights
+reach Notion without a cable. It is compiled into debug builds only, so the arguments
+above still hold for what Light signs.
+
+SDK v0.2.3 adds the sanctioned version: community tools can opt in to
+[backups](https://github.com/lightphone/light-sdk/blob/v0.2.3/docs/backups/README.md) to
+the user's own Google Drive, Dropbox or WebDAV. It depends on `tool-manager-provider`, so
+it waits on the same LightOS release. When that ships, flag the highlights directory
+`canBeBackedUp = true` and the debug sync can go.
+
 ## Local notifications
 
 Not used, and not planned for v1. Light's team said in the same thread that notification
