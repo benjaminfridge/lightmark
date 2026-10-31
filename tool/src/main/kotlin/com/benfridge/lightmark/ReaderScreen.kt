@@ -70,9 +70,14 @@ import com.thelightphone.sdk.ui.LightThemeController
 import com.thelightphone.sdk.ui.LightThemeTokens
 import com.thelightphone.sdk.ui.LightTopBar
 import kotlin.coroutines.CoroutineContext
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 /** How the reader should place you when a chapter opens. */
 enum class ChapterEntry { Restore, Start, End }
@@ -141,6 +146,7 @@ class ReaderViewModel(
     private var index = startIndex.coerceIn(0, (chapters.size - 1).coerceAtLeast(0))
     private var anchorOffset: Int? = null
     private var pageOffset = 0
+    private val saves = Mutex()
     private var started = false
 
     /**
@@ -184,8 +190,11 @@ class ReaderViewModel(
         return false
     }
 
+    /** Saved on every turn, so a place survives the process dying as well as leaving. */
     fun notePageOffset(offset: Int) {
+        if (offset == pageOffset) return
         pageOffset = offset
+        persist()
     }
 
     /**
@@ -286,10 +295,18 @@ class ReaderViewModel(
         }
     }
 
+    /**
+     * NonCancellable because back clears this view model straight after asking it: the
+     * SDK cancels viewModelScope in the same call, so an ordinary launch can lose the save
+     * and reopen the chapter wherever it was last saved. Undispatched so the lock is taken
+     * here, in the order the pages turned, rather than whenever a thread comes free.
+     */
     private fun persist() {
         val ref = chapters.getOrNull(index) ?: return
         val offset = pageOffset
-        viewModelScope.launch(io) { repository.saveOffset(ref.id, offset) }
+        viewModelScope.launch(NonCancellable, start = CoroutineStart.UNDISPATCHED) {
+            saves.withLock { withContext(io) { repository.saveOffset(ref.id, offset) } }
+        }
     }
 
     private suspend fun reload() {
@@ -489,7 +506,10 @@ class ReaderScreen(
                                 else pageContaining(pages, blockStarts, readingOffset)
                             }
 
-                            LaunchedEffect(pageIndex, pages) {
+                            // Not before the saved place is restored: page 0 is only a
+                            // placeholder until then, and noting it would overwrite that place.
+                            LaunchedEffect(pageIndex, pages, readingOffset >= 0) {
+                                if (readingOffset < 0) return@LaunchedEffect
                                 pages.getOrNull(pageIndex)?.let {
                                     viewModel.notePageOffset(startOffsetOf(it, blockStarts))
                                 }

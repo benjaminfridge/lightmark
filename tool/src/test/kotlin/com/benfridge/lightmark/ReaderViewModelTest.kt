@@ -8,7 +8,9 @@ import com.benfridge.lightmark.data.HighlightDao
 import com.benfridge.lightmark.data.Library
 import com.benfridge.lightmark.data.ReaderSettings
 import com.benfridge.lightmark.data.TextScale
+import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -225,6 +227,54 @@ class ReaderViewModelTest {
         vm.nextChapter()
         advanceUntilIdle()
         assertEquals(ChapterEntry.Start, vm.loaded.value?.entry)
+    }
+
+    @Test
+    fun `leaving keeps your page even though the screen is torn down at once`() =
+        runTest(dispatcher) {
+            val a = chapter("a.md")
+            // Read to the end earlier: the store still holds the last page.
+            val store = FakeStore(mapOf(a.id to "some text"), savedOffsets = mutableMapOf(a.id to 999))
+            val vm = viewModel(store, listOf(a))
+            vm.start()
+            advanceUntilIdle()
+            vm.notePageOffset(0)
+
+            // What the SDK does on back: asks the view model, then clears it in the same
+            // breath, which cancels viewModelScope before a launched save has run.
+            vm.onBackPressed()
+            vm.viewModelScope.cancel()
+            advanceUntilIdle()
+
+            assertEquals(0, store.savedOffsets[a.id])
+        }
+
+    @Test
+    fun `every page turn is saved, not just leaving`() = runTest(dispatcher) {
+        val a = chapter("a.md")
+        val store = FakeStore(mapOf(a.id to "some text"))
+        val vm = viewModel(store, listOf(a))
+        vm.start()
+        advanceUntilIdle()
+
+        vm.notePageOffset(500)
+        advanceUntilIdle()
+
+        assertEquals(500, store.savedOffsets[a.id])
+    }
+
+    @Test
+    fun `page turns are saved in the order they happened`() = runTest(dispatcher) {
+        val a = chapter("a.md")
+        val store = FakeStore(mapOf(a.id to "some text"))
+        val vm = viewModel(store, listOf(a))
+        vm.start()
+        advanceUntilIdle()
+
+        listOf(100, 200, 300, 0).forEach(vm::notePageOffset)
+        advanceUntilIdle()
+
+        assertEquals(0, store.savedOffsets[a.id])
     }
 
     @Test
