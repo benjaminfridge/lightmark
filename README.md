@@ -292,8 +292,9 @@ public-suffix list.
 
 ## Design notes
 
-**The reader has two gestures and one button.** Swipe turns the page; press and hold then
-drag highlights. A plain tap on the page does nothing, deliberately. Leaving is the back
+**The reader has three gestures and one button.** Swipe turns the page; press and hold
+then drag highlights; dragging along the bottom edge scrubs through the chapter. A plain
+tap on the page does nothing, deliberately. Leaving is the back
 arrow in the top bar: LightOS has no system back key on the phone, which the emulator's
 navigation bar hid until this ran on real hardware.
 
@@ -385,8 +386,16 @@ merge anyway.
 shown as a single-pixel rule along the bottom edge filling left to right. A page count
 or percentage invites checking; a filling line is read without being looked at.
 
+**The hairline is also a scrubber.** Its touch zone is the bottom three grid units, the
+height of Light's own touchable progress bar. Light's component jumps on touch and takes
+every press, which would turn a tap into a lost place and block highlighting the last
+line, so the scrub is arbitrated inside `readerGestures` instead: it needs a sideways drag
+still going after 180ms, and a flick there stays a page turn. "12 of 48" shows in the top
+bar during the drag and nowhere else, because a scrub is the one moment you are asking
+where you are. Only where the drag stops is saved.
+
 **Gestures are arbitrated explicitly.** Both start with a finger down in the same place,
-so `readerGestures` races the long-press timer against movement rather than stacking two
+so `readerGestures` races the long-press timer against movement rather than stacking
 detectors: move first and it is a swipe, stay still past the timeout and it is a
 selection. Two independent detectors would both claim a press-then-drag and turn the page
 mid-highlight.

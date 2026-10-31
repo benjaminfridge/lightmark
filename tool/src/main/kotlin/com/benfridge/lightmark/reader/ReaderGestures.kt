@@ -25,8 +25,35 @@ internal fun swipeDirection(dx: Float, dy: Float, threshold: Float): Int = when 
 }
 
 /**
+ * Whether a drag has become a scrub along the progress bar.
+ *
+ * Only a drag that began in the bar's touch zone, mostly sideways, and still going after
+ * [SCRUB_DELAY_MS]. A flick near the bottom of the page stays a page turn, because a scrub
+ * jumps to wherever the finger is and an accidental one would lose your place.
+ */
+internal fun startsScrub(startedInZone: Boolean, dx: Float, dy: Float, elapsedMs: Long): Boolean =
+    startedInZone && elapsedMs >= SCRUB_DELAY_MS && kotlin.math.abs(dx) > kotlin.math.abs(dy)
+
+/**
+ * The page a scrub at [x] lands on, each page owning an equal slice of the track.
+ *
+ * The track stops [edgeInset] short of each side, so the first and last pages can be
+ * reached without a fingertip having to find the bezel.
+ */
+internal fun scrubPageAt(x: Float, width: Float, edgeInset: Float, pageCount: Int): Int {
+    if (pageCount <= 0) return 0
+    val track = width - edgeInset * 2f
+    if (track <= 0f) return 0
+    val page = ((x - edgeInset) / track * pageCount).toInt()
+    return if (x <= edgeInset) 0 else page.coerceAtMost(pageCount - 1)
+}
+
+/** Long enough to tell a deliberate drag from the flick a page turn is. */
+internal const val SCRUB_DELAY_MS = 180L
+
+/**
  * The reader's whole input surface: swipe to turn the page, press and hold then drag to
- * highlight. Nothing else.
+ * highlight, drag along the bottom edge to scrub. Nothing else.
  *
  * Both gestures start with a finger down in the same place, so they are arbitrated
  * explicitly rather than by stacking two detectors: the long-press timer is raced
@@ -39,6 +66,10 @@ internal fun swipeDirection(dx: Float, dy: Float, threshold: Float): Int = when 
  * [onSelectStart] returns false when the press landed on an existing highlight and
  * removed it; the rest of that gesture is then swallowed, so a removal cannot slide
  * into drawing a new highlight.
+ *
+ * A scrub is decided inside the swipe, so all three still race from one finger down.
+ * [scrubZoneTop] is where the bar's touch zone starts. [key] must not change during a
+ * scrub: this restarts on a new key, and that would cancel the drag.
  */
 internal fun Modifier.readerGestures(
     key: Any?,
@@ -49,6 +80,10 @@ internal fun Modifier.readerGestures(
     onSelectExtend: (Offset) -> Unit,
     onSelectCommit: () -> Unit,
     onSelectCancel: () -> Unit,
+    scrubZoneTop: Float,
+    onScrubStart: () -> Unit,
+    onScrubTo: (x: Float) -> Unit,
+    onScrubEnd: () -> Unit,
 ): Modifier = pointerInput(key) {
     val slop = viewConfiguration.touchSlop
     val longPressMs = viewConfiguration.longPressTimeoutMillis
@@ -106,16 +141,32 @@ internal fun Modifier.readerGestures(
             }
 
             ReaderIntent.Swipe -> {
-                while (true) {
-                    val event = awaitPointerEvent()
-                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                    travel = change.position - down.position
-                    change.consume()
-                    if (!change.pressed) break
+                val inZone = down.position.y >= scrubZoneTop
+                var scrubbing = false
+                try {
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                        travel = change.position - down.position
+                        change.consume()
+                        if (!change.pressed) break
+                        val elapsed = change.uptimeMillis - down.uptimeMillis
+                        if (!scrubbing && startsScrub(inZone, travel.x, travel.y, elapsed)) {
+                            scrubbing = true
+                            onScrubStart()
+                        }
+                        if (scrubbing) onScrubTo(change.position.x)
+                    }
+                } finally {
+                    // Also when this is cancelled, or the reader stays stuck mid-scrub
+                    // and stops saving your place.
+                    if (scrubbing) onScrubEnd()
                 }
-                when (swipeDirection(travel.x, travel.y, swipeThreshold)) {
-                    1 -> onPageForward()
-                    -1 -> onPageBack()
+                if (!scrubbing) {
+                    when (swipeDirection(travel.x, travel.y, swipeThreshold)) {
+                        1 -> onPageForward()
+                        -1 -> onPageBack()
+                    }
                 }
             }
         }

@@ -30,10 +30,11 @@ equivalent of a highlighter on a screen like this one.
 ## Everything else
 
 The hairline along the bottom edge is how far through you are. There is no
-page number, because a number invites checking.
+page number, because a number invites checking. To move further than a page,
+drag along it, and the page follows your finger.
 
 To leave, press back. That is the whole interface: swipe, press and hold,
-and back.
+drag along the bottom, and back.
 
 ## Adding your own documents
 

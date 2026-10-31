@@ -14,6 +14,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -42,6 +43,7 @@ import com.benfridge.lightmark.reader.layoutPage
 import com.benfridge.lightmark.reader.pageContaining
 import com.benfridge.lightmark.reader.paginate
 import com.benfridge.lightmark.reader.readerGestures
+import com.benfridge.lightmark.reader.scrubPageAt
 import com.benfridge.lightmark.sync.HighlightSync
 import com.benfridge.lightmark.reader.sliceIndexAt
 import com.benfridge.lightmark.reader.stepBackward
@@ -63,12 +65,14 @@ import com.thelightphone.sdk.buildDatabase
 import com.thelightphone.sdk.ui.LightBarButton
 import com.thelightphone.sdk.ui.LightGrid
 import com.thelightphone.sdk.ui.LightIcons
+import com.thelightphone.sdk.ui.LightProgressBar
 import com.thelightphone.sdk.ui.LightText
 import com.thelightphone.sdk.ui.LightTextVariant
 import com.thelightphone.sdk.ui.LightTheme
 import com.thelightphone.sdk.ui.LightThemeController
 import com.thelightphone.sdk.ui.LightThemeTokens
 import com.thelightphone.sdk.ui.LightTopBar
+import com.thelightphone.sdk.ui.LightTopBarCenter
 import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -146,6 +150,7 @@ class ReaderViewModel(
     private var index = startIndex.coerceIn(0, (chapters.size - 1).coerceAtLeast(0))
     private var anchorOffset: Int? = null
     private var pageOffset = 0
+    private var scrubbing = false
     private val saves = Mutex()
     private var started = false
 
@@ -194,6 +199,16 @@ class ReaderViewModel(
     fun notePageOffset(offset: Int) {
         if (offset == pageOffset) return
         pageOffset = offset
+        if (!scrubbing) persist()
+    }
+
+    /** A scrub passes through dozens of pages, and only where it stops is your place. */
+    fun beginScrub() {
+        scrubbing = true
+    }
+
+    fun endScrub() {
+        scrubbing = false
         persist()
     }
 
@@ -422,6 +437,8 @@ class ReaderScreen(
         val textScale by viewModel.textScale.collectAsState()
         val justifyText by viewModel.justifyText.collectAsState()
         val themeColors by LightThemeController.colors.collectAsState()
+        // The one number the reader shows, and only while it is being asked for.
+        var scrubLabel by remember { mutableStateOf<String?>(null) }
 
         LightTheme(colors = themeColors) {
             val colors = LightThemeTokens.colors
@@ -432,6 +449,7 @@ class ReaderScreen(
             ) {
                 LightTopBar(
                     leftButton = LightBarButton.LightIcon(LightIcons.BACK, onClick = { goBack() }),
+                    center = scrubLabel?.let { LightTopBarCenter.Text(it) },
                 )
 
                 BoxWithConstraints(
@@ -515,6 +533,8 @@ class ReaderScreen(
                                 }
                             }
 
+                            var scrubAnchor by remember(state.token) { mutableStateOf<Int?>(null) }
+
                             fun goToPage(index: Int) {
                                 val target = pages.getOrNull(index) ?: return
                                 readingOffset = startOffsetOf(target, blockStarts)
@@ -574,7 +594,8 @@ class ReaderScreen(
                                 modifier = Modifier
                                     .fillMaxSize()
                                     .readerGestures(
-                                        key = Triple(state.token, pageIndex, pages.size),
+                                        // Held still during a scrub. See readerGestures.
+                                        key = Triple(state.token, scrubAnchor ?: pageIndex, pages.size),
                                         swipeThreshold = widthPx * SWIPE_FRACTION,
                                         onPageForward = { advance() },
                                         onPageBack = { retreat() },
@@ -593,6 +614,29 @@ class ReaderScreen(
                                         },
                                         onSelectCommit = viewModel::commitSelection,
                                         onSelectCancel = viewModel::cancelSelection,
+                                        scrubZoneTop = if (pages.size > 1) {
+                                            heightPx - SCRUB_ZONE_UNITS * unitPx
+                                        } else {
+                                            Float.POSITIVE_INFINITY
+                                        },
+                                        onScrubStart = {
+                                            scrubAnchor = pageIndex
+                                            viewModel.beginScrub()
+                                            // Confirms the mode changed, as a selection does.
+                                            sealedActivity.vibrator.click()
+                                        },
+                                        onScrubTo = { x ->
+                                            val page = scrubPageAt(
+                                                x, widthPx, SCRUB_EDGE_UNITS * unitPx, pages.size,
+                                            )
+                                            goToPage(page)
+                                            scrubLabel = "${page + 1} of ${pages.size}"
+                                        },
+                                        onScrubEnd = {
+                                            scrubAnchor = null
+                                            scrubLabel = null
+                                            viewModel.endScrub()
+                                        },
                                     ),
                             ) {
                                 if (placed.isNotEmpty()) {
@@ -624,6 +668,7 @@ class ReaderScreen(
                             if (pages.size > 1) {
                                 ProgressHairline(
                                     fraction = (pageIndex + 1f) / pages.size,
+                                    scrubbing = scrubAnchor != null,
                                     modifier = Modifier.align(Alignment.BottomStart),
                                 )
                             }
@@ -637,6 +682,12 @@ class ReaderScreen(
     private companion object {
         /** A swipe must cross this share of the screen's width to turn the page. */
         const val SWIPE_FRACTION = 0.12f
+
+        /** The same touch height as LightTouchableProgressBar and the top bar. */
+        const val SCRUB_ZONE_UNITS = 3f
+
+        /** Past this close to a side, a scrub has reached the first or last page. */
+        const val SCRUB_EDGE_UNITS = 1f
     }
 }
 
@@ -646,9 +697,18 @@ class ReaderScreen(
  * Not a page count and not a percentage: a number invites checking, a filling line is
  * read without being looked at. It measures the chapter rather than the book because
  * chapters differ in length, so a book-wide fraction would be quietly wrong.
+ *
+ * While it is being dragged it becomes Light's own progress bar, thick enough to read
+ * around a fingertip.
  */
 @Composable
-private fun ProgressHairline(fraction: Float, modifier: Modifier = Modifier) {
+private fun ProgressHairline(fraction: Float, scrubbing: Boolean, modifier: Modifier = Modifier) {
+    if (scrubbing) {
+        Box(modifier.fillMaxWidth()) {
+            LightProgressBar(LightThemeTokens.colors, fraction)
+        }
+        return
+    }
     Box(modifier.fillMaxWidth().height(1.dp)) {
         Box(
             modifier = Modifier

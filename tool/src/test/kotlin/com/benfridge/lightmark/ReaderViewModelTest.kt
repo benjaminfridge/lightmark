@@ -55,7 +55,9 @@ class ReaderViewModelTest {
             delay(readDelays[ref.id] ?: 0L)
             return texts[ref.id]
         }
+        var saves = 0
         override suspend fun saveOffset(documentId: String, characterOffset: Int) {
+            saves++
             savedOffsets[documentId] = characterOffset
         }
         override suspend fun offset(documentId: String) = savedOffsets[documentId] ?: 0
@@ -275,6 +277,98 @@ class ReaderViewModelTest {
         advanceUntilIdle()
 
         assertEquals(0, store.savedOffsets[a.id])
+    }
+
+    @Test
+    fun `a scrub saves where it stopped, not every page it passed`() = runTest(dispatcher) {
+        val a = chapter("a.md")
+        val store = FakeStore(mapOf(a.id to "some text"))
+        val vm = viewModel(store, listOf(a))
+        vm.start()
+        advanceUntilIdle()
+        val before = store.saves
+
+        vm.beginScrub()
+        listOf(100, 900, 400, 700).forEach(vm::notePageOffset)
+        advanceUntilIdle()
+        assertEquals(before, store.saves, "nothing is written during the drag")
+
+        vm.endScrub()
+        advanceUntilIdle()
+        assertEquals(700, store.savedOffsets[a.id])
+    }
+
+    @Test
+    fun `a page that lands just after the finger lifts is still saved`() = runTest(dispatcher) {
+        val a = chapter("a.md")
+        val store = FakeStore(mapOf(a.id to "some text"))
+        val vm = viewModel(store, listOf(a))
+        vm.start()
+        advanceUntilIdle()
+
+        vm.beginScrub()
+        vm.notePageOffset(400)
+        vm.endScrub()
+        vm.notePageOffset(700) // the screen reports the final page after the release
+        advanceUntilIdle()
+
+        assertEquals(700, store.savedOffsets[a.id])
+    }
+
+    @Test
+    fun `leaving in the middle of a scrub keeps the page on screen`() = runTest(dispatcher) {
+        val a = chapter("a.md")
+        val store = FakeStore(mapOf(a.id to "some text"), savedOffsets = mutableMapOf(a.id to 999))
+        val vm = viewModel(store, listOf(a))
+        vm.start()
+        advanceUntilIdle()
+
+        vm.beginScrub()
+        vm.notePageOffset(250)
+        vm.onBackPressed()
+        vm.viewModelScope.cancel()
+        advanceUntilIdle()
+
+        assertEquals(250, store.savedOffsets[a.id])
+    }
+
+    @Test
+    fun `scrubbing back to the start and leaving reopens at the start`() = runTest(dispatcher) {
+        val a = chapter("a.md")
+        val store = FakeStore(mapOf(a.id to "some text"), savedOffsets = mutableMapOf(a.id to 999))
+        val vm = viewModel(store, listOf(a))
+        vm.start()
+        advanceUntilIdle()
+        vm.notePageOffset(999)
+
+        vm.beginScrub()
+        vm.notePageOffset(0)
+        vm.endScrub()
+        vm.onBackPressed()
+        vm.viewModelScope.cancel()
+        advanceUntilIdle()
+
+        val reopened = viewModel(store, listOf(a))
+        reopened.start()
+        advanceUntilIdle()
+        assertEquals(0, reopened.loaded.value?.savedOffset)
+    }
+
+    @Test
+    fun `after a scrub, page turns save again`() = runTest(dispatcher) {
+        val a = chapter("a.md")
+        val store = FakeStore(mapOf(a.id to "some text"))
+        val vm = viewModel(store, listOf(a))
+        vm.start()
+        advanceUntilIdle()
+
+        vm.beginScrub()
+        vm.notePageOffset(400)
+        vm.endScrub()
+        vm.notePageOffset(500)
+        advanceUntilIdle()
+
+        assertEquals(500, store.savedOffsets[a.id])
     }
 
     @Test
