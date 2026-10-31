@@ -32,6 +32,7 @@ import com.benfridge.lightmark.data.resumeTarget
 import com.benfridge.lightmark.data.TextScale
 import com.benfridge.lightmark.markdown.Block
 import com.benfridge.lightmark.markdown.Span
+import com.benfridge.lightmark.sync.HighlightSync
 import com.benfridge.lightmark.ui.blockStyle
 import com.benfridge.lightmark.ui.rememberFontScale
 import com.benfridge.lightmark.data.ReaderSettings
@@ -162,6 +163,7 @@ class LibraryScreen(sealedActivity: SealedLightActivity) :
     override val viewModelClass: Class<LibraryViewModel> get() = LibraryViewModel::class.java
 
     override fun createViewModel(): LibraryViewModel {
+        HighlightSync.schedule(lightContext)
         val highlights = Databases.highlights(lightContext)
         return LibraryViewModel(
             repository = DocumentRepository(lightContext, lightContext.dataStore),

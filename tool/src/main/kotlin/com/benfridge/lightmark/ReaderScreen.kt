@@ -42,6 +42,7 @@ import com.benfridge.lightmark.reader.layoutPage
 import com.benfridge.lightmark.reader.pageContaining
 import com.benfridge.lightmark.reader.paginate
 import com.benfridge.lightmark.reader.readerGestures
+import com.benfridge.lightmark.sync.HighlightSync
 import com.benfridge.lightmark.reader.sliceIndexAt
 import com.benfridge.lightmark.reader.stepBackward
 import com.benfridge.lightmark.reader.stepForward
@@ -115,6 +116,7 @@ class ReaderViewModel(
     private val settings: ReaderSettings,
     /** Injected so tests can run the loads on a scheduler they control. */
     private val io: CoroutineContext = Dispatchers.IO,
+    private val onHighlightsChanged: () -> Unit = {},
 ) : LightViewModel<Unit>() {
 
     val loaded = MutableStateFlow<LoadedChapter?>(null)
@@ -308,6 +310,7 @@ class ReaderViewModel(
             viewModelScope.launch(io) {
                 highlightDao.delete(existing.id)
                 reload()
+                onHighlightsChanged()
             }
             return false
         }
@@ -351,6 +354,7 @@ class ReaderViewModel(
                 )
             )
             reload()
+            onHighlightsChanged()
         }
     }
 
@@ -388,6 +392,7 @@ class ReaderScreen(
         repository = DocumentRepository(lightContext, lightContext.dataStore),
         highlightDao = Databases.highlights(lightContext),
         settings = DataStoreReaderSettings(lightContext.dataStore),
+        onHighlightsChanged = { HighlightSync.changed(lightContext) },
     )
 
     @Composable
