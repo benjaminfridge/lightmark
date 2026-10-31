@@ -232,13 +232,12 @@ export code. There is no forward-to-email path and cannot be one yet —
 ## Permissions
 
 Lightmark declares none of its own — `permissions = []` in `lighttool.toml` — and release
-builds make no network calls; nothing under `tool/src/main` or `tool/src/release`
-references an HTTP client.
+builds make no network calls; nothing under `tool/src/main` references an HTTP client.
 
 Debug builds are different, and only they: `tool/src/debug` pushes highlights to the
 author's own private GitHub repo using a token placed on the phone by hand. Without a
 token it does nothing. The build Light signs is `assembleRelease`, which does not compile
-that source set.
+that source set, so the sync job it would schedule is not there and the request is a no-op.
 
 The built APK nevertheless lists these, and a reviewer will see them:
 

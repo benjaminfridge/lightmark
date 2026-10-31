@@ -7,7 +7,6 @@ import com.benfridge.lightmark.export.sectionsFrom
 import com.thelightphone.sdk.LightJob
 import com.thelightphone.sdk.LightJobHandler
 import com.thelightphone.sdk.LightJobResult
-import com.thelightphone.sdk.LightWork
 import com.thelightphone.sdk.SealedLightContext
 import java.io.IOException
 import java.net.HttpURLConnection
@@ -16,14 +15,11 @@ import java.security.MessageDigest
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Base64
-import kotlin.time.Duration.Companion.hours
 import org.json.JSONArray
 import org.json.JSONObject
 
-private const val JOB_KEY = "highlight-sync"
-
-@LightJob(JOB_KEY)
-val highlightSyncJob: LightJobHandler = { context, _ -> HighlightSync.run(context) }
+@LightJob(HighlightSync.JOB_KEY)
+val highlightPushJob: LightJobHandler = { context, _ -> HighlightPush.run(context) }
 
 /**
  * Personal builds only: pushes every highlight to a private GitHub repo, where an Action
@@ -33,20 +29,11 @@ val highlightSyncJob: LightJobHandler = { context, _ -> HighlightSync.run(contex
  * The token is put on the phone over USB by scripts/set-highlight-sync-token.sh and never
  * appears in the source.
  */
-object HighlightSync {
+object HighlightPush {
     private const val REPO = "benjaminfridge/lightmark-highlights"
     private const val TOKEN_PATH = ".sync/github-token"
     private const val LAST_PATH = ".sync/last-pushed"
     private val DATE_FORMAT = DateTimeFormatter.ofPattern("d MMMM yyyy")
-
-    /** A safety net for a push that failed while the phone was offline. */
-    fun schedule(context: SealedLightContext) {
-        LightWork.enqueuePeriodic(context, JOB_KEY, 6.hours, tag = "$JOB_KEY-periodic")
-    }
-
-    fun changed(context: SealedLightContext) {
-        LightWork.enqueue(context, JOB_KEY)
-    }
 
     suspend fun run(context: SealedLightContext): LightJobResult {
         val share = context.fileShare
